@@ -1,7 +1,21 @@
 const Invoice = require('./invoice.model');
+const Setting = require('../settings/setting.model');
+const customersService = require('../customers/customers.service');
 const { nextInvoiceNumber } = require('../../common/utils/invoiceNumber');
 
-function computeTotals(items = [], discount = 0) {
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+
+async function getSettings() {
+  let settings = await Setting.findOne();
+  if (!settings) {
+    settings = await Setting.create({});
+  }
+  return settings;
+}
+
+function computeItemTotals(items = []) {
   let subtotal = 0;
   let tax = 0;
 
@@ -12,19 +26,76 @@ function computeTotals(items = [], discount = 0) {
     tax += lineTax;
   }
 
-  subtotal = round2(subtotal);
-  tax = round2(tax);
-  const total = round2(subtotal + tax - (discount || 0));
-
-  return { subtotal, tax, total };
+  return { subtotal: round2(subtotal), tax: round2(tax) };
 }
 
-function round2(n) {
-  return Math.round(n * 100) / 100;
+// Normalizes the discount fields a client may send. New clients send
+// {discountType, discountValue}; legacy clients send a plain {discount}
+// number, which is treated as a FLAT amount for backward compatibility.
+function resolveDiscountInput(payload) {
+  const { discountType, discountValue, discount } = payload;
+
+  if (discountType !== undefined || discountValue !== undefined) {
+    return {
+      discountType: discountType === 'PERCENT' ? 'PERCENT' : 'FLAT',
+      discountValue: Number(discountValue) || 0,
+    };
+  }
+
+  if (discount !== undefined) {
+    return { discountType: 'FLAT', discountValue: Number(discount) || 0 };
+  }
+
+  return { discountType: 'FLAT', discountValue: 0 };
+}
+
+function hasDiscountFields(payload) {
+  return payload.discount !== undefined || payload.discountType !== undefined || payload.discountValue !== undefined;
+}
+
+function computeDiscountAmount(subtotal, tax, discountType, discountValue) {
+  if (discountType === 'PERCENT') {
+    return round2((subtotal + tax) * (discountValue / 100));
+  }
+  return round2(discountValue);
+}
+
+// Discount may never exceed subtotal+tax, and (for non-Admins) may never
+// exceed settings.discounts.maxPercent of subtotal+tax.
+function validateDiscount(discount, grossTotal, settings, user) {
+  if (discount > grossTotal) {
+    const err = new Error('Discount cannot exceed subtotal plus tax');
+    err.status = 400;
+    throw err;
+  }
+
+  const maxPercent = settings && settings.discounts ? settings.discounts.maxPercent : 100;
+
+  if (grossTotal > 0 && discount > 0) {
+    const effectivePercent = (discount / grossTotal) * 100;
+    const isAdmin = user && user.role === 'Admin';
+    if (effectivePercent > maxPercent && !isAdmin) {
+      const err = new Error(`Discount exceeds the maximum allowed ${maxPercent}%`);
+      err.status = 400;
+      throw err;
+    }
+  }
+}
+
+function applyRounding(total, settings) {
+  if (!settings || !settings.rounding || !settings.rounding.enabled) {
+    return { total: round2(total), roundOff: 0 };
+  }
+
+  const nearest = settings.rounding.nearest || 1;
+  const roundedTotal = Math.round(total / nearest) * nearest;
+  const roundOff = round2(roundedTotal - total);
+
+  return { total: round2(total + roundOff), roundOff };
 }
 
 async function createInvoice(payload, user) {
-  const { items = [], discount = 0, customer, status = 'OPEN' } = payload;
+  const { items = [], customer, status = 'OPEN', note } = payload;
 
   if (!items.length) {
     const err = new Error('Invoice must have at least one item');
@@ -32,8 +103,24 @@ async function createInvoice(payload, user) {
     throw err;
   }
 
-  const { subtotal, tax, total } = computeTotals(items, discount);
+  const settings = await getSettings();
+  const { subtotal, tax } = computeItemTotals(items);
+  const grossTotal = round2(subtotal + tax);
+
+  const { discountType, discountValue } = resolveDiscountInput(payload);
+  const discount = computeDiscountAmount(subtotal, tax, discountType, discountValue);
+
+  validateDiscount(discount, grossTotal, settings, user);
+
+  const { total, roundOff } = applyRounding(round2(grossTotal - discount), settings);
+
   const invoiceNumber = await nextInvoiceNumber();
+
+  let customerId = null;
+  if (customer && customer.phone) {
+    const customerDoc = await customersService.upsertByPhone(customer);
+    customerId = customerDoc ? customerDoc._id : null;
+  }
 
   const invoice = await Invoice.create({
     invoiceNumber,
@@ -41,8 +128,13 @@ async function createInvoice(payload, user) {
     subtotal,
     tax,
     discount,
+    discountType,
+    discountValue,
+    roundOff,
     total,
+    note,
     customer,
+    customerId,
     status,
     paymentStatus: 'PENDING',
     cashier: { id: user.id, name: user.name },
@@ -88,7 +180,7 @@ async function getInvoice(id) {
   return invoice;
 }
 
-async function updateInvoice(id, payload) {
+async function updateInvoice(id, payload, user) {
   const invoice = await Invoice.findById(id);
   if (!invoice) {
     const err = new Error('Invoice not found');
@@ -96,7 +188,7 @@ async function updateInvoice(id, payload) {
     throw err;
   }
 
-  const { items, discount, customer, status } = payload;
+  const { items, customer, status, note } = payload;
 
   if (status === 'CANCELLED') {
     invoice.status = 'CANCELLED';
@@ -104,24 +196,67 @@ async function updateInvoice(id, payload) {
     return invoice;
   }
 
-  if (invoice.paymentStatus !== 'PENDING' && (items || discount !== undefined)) {
+  const discountFieldsChanged = hasDiscountFields(payload);
+
+  if (invoice.paymentStatus !== 'PENDING' && (items || discountFieldsChanged)) {
     const err = new Error('Cannot modify items/discount of a paid invoice');
     err.status = 400;
     throw err;
   }
 
   if (items) invoice.items = items;
-  if (discount !== undefined) invoice.discount = discount;
-  if (customer) invoice.customer = customer;
+  if (note !== undefined) invoice.note = note;
   if (status) invoice.status = status;
 
-  const { subtotal, tax, total } = computeTotals(invoice.items, invoice.discount);
+  if (customer !== undefined) {
+    invoice.customer = customer;
+    if (customer && customer.phone) {
+      const customerDoc = await customersService.upsertByPhone(customer);
+      invoice.customerId = customerDoc ? customerDoc._id : null;
+    } else {
+      invoice.customerId = null;
+    }
+  }
+
+  const settings = await getSettings();
+  const { subtotal, tax } = computeItemTotals(invoice.items);
+  const grossTotal = round2(subtotal + tax);
+
+  let discountType;
+  let discountValue;
+  let discount;
+
+  if (discountFieldsChanged) {
+    ({ discountType, discountValue } = resolveDiscountInput(payload));
+    discount = computeDiscountAmount(subtotal, tax, discountType, discountValue);
+  } else {
+    // No discount info sent — keep the previously stored discount amount as-is
+    // (it may pre-date discountType/discountValue existing on this document).
+    discount = invoice.discount || 0;
+    discountType = invoice.discountType || 'FLAT';
+    discountValue = invoice.discountValue !== undefined && invoice.discountValue !== null ? invoice.discountValue : discount;
+  }
+
+  validateDiscount(discount, grossTotal, settings, user);
+
+  const { total, roundOff } = applyRounding(round2(grossTotal - discount), settings);
+
   invoice.subtotal = subtotal;
   invoice.tax = tax;
+  invoice.discount = discount;
+  invoice.discountType = discountType;
+  invoice.discountValue = discountValue;
+  invoice.roundOff = roundOff;
   invoice.total = total;
 
   await invoice.save();
   return invoice;
 }
 
-module.exports = { computeTotals, createInvoice, listInvoices, getInvoice, updateInvoice };
+module.exports = {
+  computeItemTotals,
+  createInvoice,
+  listInvoices,
+  getInvoice,
+  updateInvoice,
+};

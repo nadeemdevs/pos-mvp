@@ -26,10 +26,15 @@ const emptyPaymentProviders = {
   worldline: { merchantCode: '', terminalId: '', securityToken: '', baseUrl: '' },
 }
 
+const emptyDiscounts = { maxPercent: '', presets: [] }
+const emptyRounding = { enabled: false, nearest: 1 }
+
 export default function SettingsPage() {
   const queryClient = useQueryClient()
   const [form, setForm] = useState(emptyForm)
   const [paymentProviders, setPaymentProviders] = useState(emptyPaymentProviders)
+  const [discounts, setDiscounts] = useState(emptyDiscounts)
+  const [rounding, setRounding] = useState(emptyRounding)
 
   const { data, isLoading } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
 
@@ -48,6 +53,16 @@ export default function SettingsPage() {
         mock: { ...emptyPaymentProviders.mock, ...data.paymentProviders?.mock },
         pinelabs: { ...emptyPaymentProviders.pinelabs, ...data.paymentProviders?.pinelabs },
         worldline: { ...emptyPaymentProviders.worldline, ...data.paymentProviders?.worldline },
+      })
+      // settings.discounts / settings.rounding may not exist yet on older
+      // backends, so fall back to sane empty defaults.
+      setDiscounts({
+        maxPercent: data.discounts?.maxPercent ?? '',
+        presets: data.discounts?.presets || [],
+      })
+      setRounding({
+        enabled: data.rounding?.enabled ?? false,
+        nearest: data.rounding?.nearest ?? 1,
       })
     }
   }, [data])
@@ -78,17 +93,52 @@ export default function SettingsPage() {
     }))
   }
 
+  const addPreset = () => {
+    setDiscounts((prev) => ({
+      ...prev,
+      presets: [...prev.presets, { label: '', type: 'PERCENT', value: 0 }],
+    }))
+  }
+
+  const updatePreset = (idx, field, value) => {
+    setDiscounts((prev) => ({
+      ...prev,
+      presets: prev.presets.map((p, i) => (i === idx ? { ...p, [field]: value } : p)),
+    }))
+  }
+
+  const removePreset = (idx) => {
+    setDiscounts((prev) => ({
+      ...prev,
+      presets: prev.presets.filter((_, i) => i !== idx),
+    }))
+  }
+
   const handleSubmit = (e) => {
     e.preventDefault()
     mutation.mutate({
       ...form,
       taxRate: Number(form.taxRate) || 0,
-      // Spread whatever the server currently has for paymentProviders first,
-      // then layer the edited section on top, so we never clobber fields
-      // this form doesn't know about (or other unrelated settings keys).
+      // Spread whatever the server currently has for each section first,
+      // then layer the edited fields on top, so we never clobber keys this
+      // form doesn't know about (or other unrelated settings keys).
       paymentProviders: {
         ...(data?.paymentProviders || {}),
         ...paymentProviders,
+      },
+      discounts: {
+        ...(data?.discounts || {}),
+        maxPercent: Number(discounts.maxPercent) || 0,
+        presets: discounts.presets.map((p) => ({
+          label: p.label,
+          type: p.type,
+          value: Number(p.value) || 0,
+        })),
+      },
+      rounding: {
+        ...(data?.rounding || {}),
+        enabled: rounding.enabled,
+        nearest: Number(rounding.nearest) || 0,
       },
     })
   }
@@ -293,6 +343,79 @@ export default function SettingsPage() {
               </details>
             )
           })}
+        </div>
+
+        <div className="card settings-form">
+          <h2>Discount Rules</h2>
+          <label className="field">
+            <span>Max Discount % (Admin exempt)</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
+              value={discounts.maxPercent}
+              onChange={(e) => setDiscounts({ ...discounts, maxPercent: e.target.value })}
+            />
+          </label>
+
+          <span className="field-label">Presets</span>
+          {discounts.presets.map((p, idx) => (
+            <div className="preset-row" key={idx}>
+              <input
+                className="preset-row-label"
+                placeholder="Label"
+                value={p.label}
+                onChange={(e) => updatePreset(idx, 'label', e.target.value)}
+              />
+              <select value={p.type} onChange={(e) => updatePreset(idx, 'type', e.target.value)}>
+                <option value="FLAT">₹ Flat</option>
+                <option value="PERCENT">% Percent</option>
+              </select>
+              <input
+                className="preset-row-value"
+                type="number"
+                min="0"
+                step="0.01"
+                value={p.value}
+                onChange={(e) => updatePreset(idx, 'value', e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm btn-danger-text"
+                onClick={() => removePreset(idx)}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={addPreset}>
+            + Add preset
+          </button>
+        </div>
+
+        <div className="card settings-form">
+          <h2>Rounding</h2>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={rounding.enabled}
+              onChange={(e) => setRounding({ ...rounding, enabled: e.target.checked })}
+            />
+            <span>Round totals to the nearest</span>
+          </label>
+          <label className="field">
+            <span>Nearest ₹</span>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              disabled={!rounding.enabled}
+              value={rounding.nearest}
+              onChange={(e) => setRounding({ ...rounding, nearest: e.target.value })}
+            />
+          </label>
+          <p className="page-subtitle">Round totals to the nearest ₹1</p>
         </div>
 
         <div className="modal-actions">

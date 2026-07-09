@@ -33,6 +33,18 @@ export function formatDateTime(date) {
   })
 }
 
+// Client-side preview only — the server is the source of truth for the
+// actual roundOff applied to an invoice. Used to show a live estimate in
+// the cart totals before an invoice is created.
+export function computeRoundOff(total, rounding) {
+  const nearest = Number(rounding?.nearest) || 0
+  if (!rounding?.enabled || nearest <= 0) {
+    return { rounded: total, roundOff: 0 }
+  }
+  const rounded = Math.round(total / nearest) * nearest
+  return { rounded, roundOff: Math.round((rounded - total) * 100) / 100 }
+}
+
 export function todayStr() {
   const d = new Date()
   const yyyy = d.getFullYear()

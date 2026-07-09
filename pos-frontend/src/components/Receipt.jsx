@@ -20,10 +20,14 @@ export default function Receipt({ invoice, payment, settings }) {
           <span>Date</span>
           <span>{formatDateTime(invoice.createdAt || Date.now())}</span>
         </div>
-        {invoice.customer?.name && (
+        {(invoice.customer?.name || invoice.customer?.phone) && (
           <div>
             <span>Customer</span>
-            <span>{invoice.customer.name}</span>
+            <span>
+              {invoice.customer.name}
+              {invoice.customer.name && invoice.customer.phone ? ' — ' : ''}
+              {invoice.customer.phone}
+            </span>
           </div>
         )}
       </div>
@@ -58,10 +62,24 @@ export default function Receipt({ invoice, payment, settings }) {
         </div>
         {invoice.discount > 0 && (
           <div>
-            <span>Discount</span>
+            <span>
+              Discount
+              {invoice.discountType === 'PERCENT' && invoice.discountValue
+                ? ` (${invoice.discountValue}%)`
+                : ''}
+            </span>
             <span>-{formatCurrency(invoice.discount, currency)}</span>
           </div>
         )}
+        {invoice.roundOff ? (
+          <div>
+            <span>Round off</span>
+            <span>
+              {invoice.roundOff > 0 ? '+' : ''}
+              {formatCurrency(invoice.roundOff, currency)}
+            </span>
+          </div>
+        ) : null}
         <div className="receipt-grand-total">
           <span>Total</span>
           <span>{formatCurrency(invoice.total, currency)}</span>
@@ -76,7 +94,7 @@ export default function Receipt({ invoice, payment, settings }) {
               <>
                 <div>
                   <span>Tendered</span>
-                  <span>{formatCurrency(payment.amount, currency)}</span>
+                  <span>{formatCurrency(payment.tendered ?? payment.amount, currency)}</span>
                 </div>
                 <div>
                   <span>Change</span>

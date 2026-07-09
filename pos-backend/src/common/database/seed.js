@@ -18,6 +18,7 @@ const ALL_PERMISSIONS = [
   'roles.manage',
   'settings.manage',
   'payments.take',
+  'customers.manage',
 ];
 
 const MANAGER_PERMISSIONS = ALL_PERMISSIONS.filter((p) => p !== 'roles.manage');

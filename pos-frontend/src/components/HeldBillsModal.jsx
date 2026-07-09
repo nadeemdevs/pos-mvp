@@ -26,6 +26,7 @@ export default function HeldBillsModal({ open, onClose, onResume }) {
             <tr>
               <th>Invoice #</th>
               <th>Customer</th>
+              <th>Note</th>
               <th>Time</th>
               <th>Total</th>
               <th></th>
@@ -36,6 +37,9 @@ export default function HeldBillsModal({ open, onClose, onResume }) {
               <tr key={inv._id || inv.id}>
                 <td>{inv.invoiceNumber}</td>
                 <td>{inv.customer?.name || '—'}</td>
+                <td>
+                  {inv.note ? <span className="held-note">{inv.note}</span> : '—'}
+                </td>
                 <td>{formatDateTime(inv.createdAt)}</td>
                 <td>{formatCurrency(inv.total)}</td>
                 <td>

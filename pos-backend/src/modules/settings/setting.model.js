@@ -26,6 +26,31 @@ const paymentProvidersSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const discountPresetSchema = new mongoose.Schema(
+  {
+    label: { type: String },
+    type: { type: String, enum: ['FLAT', 'PERCENT'] },
+    value: { type: Number },
+  },
+  { _id: false }
+);
+
+const discountsSchema = new mongoose.Schema(
+  {
+    maxPercent: { type: Number, default: 100 },
+    presets: { type: [discountPresetSchema], default: [] },
+  },
+  { _id: false }
+);
+
+const roundingSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    nearest: { type: Number, default: 1 },
+  },
+  { _id: false }
+);
+
 const settingSchema = new mongoose.Schema(
   {
     restaurantName: { type: String, default: 'My Restaurant' },
@@ -35,6 +60,8 @@ const settingSchema = new mongoose.Schema(
     currency: { type: String, default: 'INR' },
     receiptFooter: { type: String, default: 'Thank you for visiting!' },
     paymentProviders: { type: paymentProvidersSchema, default: () => ({}) },
+    discounts: { type: discountsSchema, default: () => ({}) },
+    rounding: { type: roundingSchema, default: () => ({}) },
   },
   { timestamps: true }
 );

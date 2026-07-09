@@ -27,8 +27,42 @@ function mergePaymentProviders(current, incoming) {
   return merged;
 }
 
+// Same shallow-merge idea as mergePaymentProviders, applied to the new
+// discounts/rounding sub-objects so a PUT that only touches one field (e.g.
+// { discounts: { maxPercent: 20 } }) doesn't wipe out sibling fields
+// (presets, etc).
+function mergeDiscounts(current, incoming) {
+  const currentObj = current && current.toObject ? current.toObject() : current || {};
+  const merged = { ...currentObj };
+
+  if (incoming.maxPercent !== undefined) merged.maxPercent = incoming.maxPercent;
+  if (incoming.presets !== undefined) merged.presets = incoming.presets;
+
+  return merged;
+}
+
+function mergeRounding(current, incoming) {
+  const currentObj = current && current.toObject ? current.toObject() : current || {};
+  const merged = { ...currentObj };
+
+  if (incoming.enabled !== undefined) merged.enabled = incoming.enabled;
+  if (incoming.nearest !== undefined) merged.nearest = incoming.nearest;
+
+  return merged;
+}
+
 const updateSettings = asyncHandler(async (req, res) => {
-  const { restaurantName, address, phone, taxRate, currency, receiptFooter, paymentProviders } = req.body;
+  const {
+    restaurantName,
+    address,
+    phone,
+    taxRate,
+    currency,
+    receiptFooter,
+    paymentProviders,
+    discounts,
+    rounding,
+  } = req.body;
 
   let settings = await Setting.findOne();
   if (!settings) {
@@ -44,6 +78,14 @@ const updateSettings = asyncHandler(async (req, res) => {
 
   if (paymentProviders) {
     settings.paymentProviders = mergePaymentProviders(settings.paymentProviders, paymentProviders);
+  }
+
+  if (discounts) {
+    settings.discounts = mergeDiscounts(settings.discounts, discounts);
+  }
+
+  if (rounding) {
+    settings.rounding = mergeRounding(settings.rounding, rounding);
   }
 
   await settings.save();

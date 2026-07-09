@@ -15,6 +15,7 @@ const billingRoutes = require('./modules/billing/billing.routes');
 const paymentsRoutes = require('./modules/payments/payments.routes');
 const reportsRoutes = require('./modules/reports/reports.routes');
 const settingsRoutes = require('./modules/settings/settings.routes');
+const customersRoutes = require('./modules/customers/customers.routes');
 
 const app = express();
 
@@ -53,6 +54,7 @@ app.use('/api/invoice', billingRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/customers', customersRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

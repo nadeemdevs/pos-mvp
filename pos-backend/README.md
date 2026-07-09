@@ -27,7 +27,7 @@ npm run seed
 ```
 
 Creates:
-- Roles: `Admin` (all permissions), `Manager` (all except `roles.manage`), `Cashier` (`billing.create`, `billing.view`, `payments.take`)
+- Roles: `Admin` (all permissions), `Manager` (all except `roles.manage`, including `customers.manage`), `Cashier` (`billing.create`, `billing.view`, `payments.take`)
 - Admin user: `admin@pos.local` / `admin123`
 - Categories: Beverages, Snacks, Meals, Desserts, each with a few sample menu items (INR, 5% tax)
 - A default settings document
@@ -63,10 +63,16 @@ All endpoints except `POST /api/auth/login` require `Authorization: Bearer <toke
 - `DELETE /api/menu/:id` (menu.manage, soft delete: sets `active=false`)
 
 ### Billing / Invoices
-- `POST /api/invoice` (billing.create) — creates invoice, computes subtotal/tax/total server-side
+- `POST /api/invoice` (billing.create) — creates invoice, computes subtotal/tax/total server-side. Body accepts `items`, `customer: {name, phone}`, `note` (label for held bills), and discount fields (see below).
 - `GET /api/invoice?date=&paymentStatus=&status=&page=&limit=` (billing.view)
 - `GET /api/invoice/:id` (billing.view)
-- `PUT /api/invoice/:id` (billing.create) — update items/discount/customer while PENDING; also used to hold/resume/cancel via `status`
+- `PUT /api/invoice/:id` (billing.create) — update items/discount/customer/note while PENDING; also used to hold/resume/cancel via `status`
+
+**Discounts:** send `discountType: 'FLAT'|'PERCENT'` + `discountValue` (number ≥ 0). `FLAT` is an absolute amount; `PERCENT` is a percentage of `subtotal + tax`. The server computes and persists the absolute `discount` amount (rounded to 2dp). Legacy clients may instead send a plain `discount` number — it is treated as `FLAT` for backward compatibility. Server-side enforcement: the discount can never exceed `subtotal + tax` (rejected `400`), and for non-`Admin` users it can never exceed `settings.discounts.maxPercent` of `subtotal + tax` (rejected `400` with `Discount exceeds the maximum allowed X%`); `Admin` bypasses the percent cap.
+
+**Rounding:** when `settings.rounding.enabled` is true, the invoice total is rounded to the nearest `settings.rounding.nearest` (e.g. `1` = whole rupees) and the delta is stored on the invoice as `roundOff` (can be negative). `total = subtotal + tax - discount + roundOff`.
+
+**Customer linkage:** if `customer.phone` is present (non-empty) on create or update, the server finds-or-creates a `Customer` by phone (updating the name if a non-empty one is supplied, without clobbering an existing customer's name with a blank one) and sets `invoice.customerId`. If `customer` is omitted from the update payload, the existing link is left untouched; if it's present but empty/phoneless, `customerId` is cleared. The embedded `customer: {name, phone}` snapshot is kept as-is for receipts.
 
 ### Payments
 
@@ -137,6 +143,17 @@ On server boot, any payment left `INITIATED`/`PROCESSING` from a previous proces
 - `GET /api/reports/daily?date=YYYY-MM-DD` (reports.view)
 - `GET /api/reports/items?from=&to=` (reports.view)
 - `GET /api/reports/payments?date=` (reports.view)
+- `GET /api/reports/discounts?from=&to=` (reports.view) — `{totalDiscount, invoiceCount, invoices: [{invoiceNumber, date, cashierName, subtotal, discount, discountType, discountValue, total}]}`; only invoices with `discount > 0`, excludes `CANCELLED`.
+- `GET /api/reports/cancelled?from=&to=` (reports.view) — `{count, totalValue, invoices: [{invoiceNumber, date, cashierName, total}]}`; invoices with `status: CANCELLED`.
+- `GET /api/reports/tax?from=&to=` (reports.view) — `{totalTax, taxableSales, byRate: [{taxRate, taxableAmount, tax}]}`; grouped from line items of `PAID` invoices.
+
+### Customers
+- `GET /api/customers?search=&page=&limit=` (billing.create or customers.manage) — `search` matches name or phone (case-insensitive) → `{items, total, page}`
+- `GET /api/customers/:id` (billing.create or customers.manage) — `{customer, stats: {invoiceCount, totalSpent, lastVisit}}` computed over that customer's `PAID` invoices
+- `GET /api/customers/:id/invoices?page=&limit=` (billing.create or customers.manage) — that customer's invoices, newest first
+- `POST /api/customers` (billing.create or customers.manage) `{name, phone, email?, notes?}`
+- `PUT /api/customers/:id` (customers.manage)
+- `DELETE /api/customers/:id` (customers.manage)
 
 ### Users
 - `GET /api/users`, `GET /api/users/:id`, `POST /api/users`, `PUT /api/users/:id`, `DELETE /api/users/:id` (users.manage; password hashed with bcrypt, never returned)
@@ -146,13 +163,15 @@ On server boot, any payment left `INITIATED`/`PROCESSING` from a previous proces
 
 ### Settings
 - `GET /api/settings`
-- `PUT /api/settings` (settings.manage)
+- `PUT /api/settings` (settings.manage) — accepts a partial body; `discounts` and `rounding` sub-objects are shallow-merged the same way `paymentProviders` is (only the keys you send are touched):
+  - `discounts: { maxPercent: 100, presets: [{label, type: 'FLAT'|'PERCENT', value}] }` — `maxPercent` is the server-side cap enforced on invoice discounts for non-`Admin` users; `presets` is a client-facing list of quick-pick discounts.
+  - `rounding: { enabled: false, nearest: 1 }` — when `enabled`, invoice totals are rounded to the nearest `nearest` and the delta is stored on the invoice as `roundOff`.
 
 ## Permission strings
 
-`billing.create`, `billing.view`, `menu.manage`, `reports.view`, `users.manage`, `roles.manage`, `settings.manage`, `payments.take`.
+`billing.create`, `billing.view`, `menu.manage`, `reports.view`, `users.manage`, `roles.manage`, `settings.manage`, `payments.take`, `customers.manage`.
 
-`Admin` role bypasses permission checks entirely.
+`Admin` role bypasses permission checks entirely. `Manager` has all of the above except `roles.manage`. `Cashier` has `billing.create`, `billing.view`, `payments.take` — which is also enough to list/read/create customers (see Customers above), since cashiers look up and create customers mid-sale.
 
 ## Realtime
 

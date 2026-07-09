@@ -2,9 +2,11 @@ import { create } from 'zustand'
 
 const initialState = {
   items: [], // {menuItemId, name, price, qty, taxRate}
-  discount: 0,
+  discountType: null, // 'FLAT' | 'PERCENT' | null
+  discountValue: 0,
   customer: { name: '', phone: '' },
   heldInvoiceId: null,
+  note: '',
 }
 
 export const useCartStore = create((set, get) => ({
@@ -41,9 +43,19 @@ export const useCartStore = create((set, get) => ({
     set({ items: get().items.filter((i) => i.menuItemId !== menuItemId) })
   },
 
-  setDiscount: (discount) => set({ discount: Number(discount) || 0 }),
+  setDiscountType: (discountType) => set({ discountType }),
+
+  setDiscountValue: (discountValue) => set({ discountValue: Number(discountValue) || 0 }),
+
+  // Convenience setter for preset chips, which know both fields at once.
+  setDiscount: (discountType, discountValue) =>
+    set({ discountType, discountValue: Number(discountValue) || 0 }),
+
+  clearDiscount: () => set({ discountType: null, discountValue: 0 }),
 
   setCustomer: (customer) => set({ customer }),
+
+  setNote: (note) => set({ note }),
 
   setHeldInvoiceId: (id) => set({ heldInvoiceId: id }),
 
@@ -56,9 +68,11 @@ export const useCartStore = create((set, get) => ({
         qty: i.qty,
         taxRate: i.taxRate,
       })),
-      discount: invoice.discount || 0,
+      discountType: invoice.discountType || null,
+      discountValue: invoice.discountValue || 0,
       customer: invoice.customer || { name: '', phone: '' },
       heldInvoiceId: invoice._id || invoice.id || null,
+      note: invoice.note || '',
     })
   },
 
@@ -75,10 +89,20 @@ export const useCartStore = create((set, get) => ({
     )
   },
 
+  // PERCENT applies to subtotal+tax; FLAT is capped so the discount can
+  // never push the total below zero.
+  getDiscountAmount: () => {
+    const { discountType, discountValue } = get()
+    if (!discountType || !discountValue) return 0
+    const base = get().getSubtotal() + get().getTax()
+    const amount = discountType === 'PERCENT' ? (base * discountValue) / 100 : discountValue
+    return Math.min(Math.max(amount, 0), base)
+  },
+
   getTotal: () => {
     const subtotal = get().getSubtotal()
     const tax = get().getTax()
-    const discount = get().discount || 0
+    const discount = get().getDiscountAmount()
     return Math.max(subtotal + tax - discount, 0)
   },
 }))

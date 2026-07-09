@@ -4,6 +4,7 @@ import AppLayout from '../layouts/AppLayout'
 import LoginPage from '../pages/LoginPage'
 import DashboardPage from '../pages/DashboardPage'
 import BillingPage from '../pages/BillingPage'
+import CustomersPage from '../pages/CustomersPage'
 import MenuPage from '../pages/MenuPage'
 import CategoriesPage from '../pages/CategoriesPage'
 import ReportsPage from '../pages/ReportsPage'
@@ -26,6 +27,10 @@ export const router = createBrowserRouter([
           {
             element: <ProtectedRoute permission="billing.create" />,
             children: [{ path: '/billing', element: <BillingPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="customers.manage" />,
+            children: [{ path: '/customers', element: <CustomersPage /> }],
           },
           {
             element: <ProtectedRoute permission="menu.manage" />,

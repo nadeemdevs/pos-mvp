@@ -10,6 +10,7 @@ import { toast } from '../store/toastStore'
 const ALL_PERMISSIONS = [
   'billing.create',
   'billing.view',
+  'customers.manage',
   'menu.manage',
   'reports.view',
   'users.manage',

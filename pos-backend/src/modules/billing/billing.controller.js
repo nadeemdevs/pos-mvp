@@ -17,7 +17,7 @@ const getOne = asyncHandler(async (req, res) => {
 });
 
 const update = asyncHandler(async (req, res) => {
-  const invoice = await billingService.updateInvoice(req.params.id, req.body);
+  const invoice = await billingService.updateInvoice(req.params.id, req.body, req.user);
   res.json(invoice);
 });
 

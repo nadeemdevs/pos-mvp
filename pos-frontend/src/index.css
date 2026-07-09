@@ -1119,6 +1119,195 @@ button, input, select, textarea {
   border-top: 1px solid var(--border);
 }
 
+/* ---------- Customer lookup (Billing) ---------- */
+
+.customer-lookup-row {
+  align-items: flex-start;
+}
+
+.customer-lookup {
+  position: relative;
+}
+
+.customer-lookup-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  z-index: 20;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.customer-lookup-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.customer-lookup-item:hover {
+  background: var(--muted-bg);
+}
+
+.customer-lookup-item-phone {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.customer-clear-btn {
+  align-self: flex-end;
+  margin-bottom: 14px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.customer-clear-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.customer-hint {
+  font-size: 12px;
+  color: var(--accent);
+  margin: -8px 0 14px;
+}
+
+.customer-detail-meta {
+  color: var(--text-muted);
+  margin: 0 0 4px;
+}
+
+/* ---------- Discount editor (Billing) ---------- */
+
+.discount-block {
+  margin-bottom: 14px;
+}
+
+.discount-input-row {
+  align-items: flex-start;
+  margin-bottom: 0;
+}
+
+.discount-toggle {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.discount-toggle .toggle-btn {
+  flex: 0 0 auto;
+  width: 40px;
+  padding: 9px 0;
+}
+
+.discount-value-field {
+  margin-bottom: 0;
+}
+
+.preset-chip-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.preset-chip {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+.discount-hint-error {
+  color: var(--danger);
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+
+.hold-note-field {
+  margin-top: 4px;
+}
+
+/* ---------- Held bills ---------- */
+
+.held-note {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* ---------- Customers page ---------- */
+
+.table-row-clickable {
+  cursor: pointer;
+}
+
+.table-row-clickable:hover {
+  background: var(--muted-bg);
+}
+
+.pagination-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.pagination-label {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* ---------- Settings: discount presets ---------- */
+
+.preset-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.preset-row-label {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.preset-row select {
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.preset-row-value {
+  width: 100px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
 /* Print handling: hide entire app, show only receipt */
 
 @media print {

@@ -18,11 +18,16 @@ const invoiceSchema = new mongoose.Schema(
     subtotal: { type: Number, required: true, default: 0 },
     tax: { type: Number, required: true, default: 0 },
     discount: { type: Number, required: true, default: 0 },
+    discountType: { type: String, enum: ['FLAT', 'PERCENT'], default: 'FLAT' },
+    discountValue: { type: Number, default: 0, min: 0 },
+    roundOff: { type: Number, default: 0 },
     total: { type: Number, required: true, default: 0 },
+    note: { type: String },
     customer: {
       name: { type: String },
       phone: { type: String },
     },
+    customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
     status: {
       type: String,
       enum: ['OPEN', 'HELD', 'CANCELLED', 'CLOSED'],
