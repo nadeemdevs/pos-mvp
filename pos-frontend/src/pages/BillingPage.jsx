@@ -111,6 +111,15 @@ export default function BillingPage() {
     onError: (e) => toast(e.response?.data?.message || 'Payment failed', 'error'),
   })
 
+  const handleCardSuccess = (payment) => {
+    // Card payments are settled (and the invoice marked PAID) server-side by
+    // the terminal flow, so we just surface the same success/receipt screen
+    // used for cash/UPI instead of re-submitting via paymentMutation.
+    setPaymentResult(payment)
+    setPaymentModalOpen(false)
+    invalidateInvoices()
+  }
+
   const handleResume = (invoice) => {
     cart.loadInvoice(invoice)
     setHeldModalOpen(false)
@@ -322,8 +331,10 @@ export default function BillingPage() {
         onClose={() => setPaymentModalOpen(false)}
         invoice={activeInvoice}
         currency={currency}
+        settings={settings}
         isSubmitting={paymentMutation.isPending}
         onConfirm={(data) => paymentMutation.mutate(data)}
+        onCardSuccess={handleCardSuccess}
       />
     </div>
   )

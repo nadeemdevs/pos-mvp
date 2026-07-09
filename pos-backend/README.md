@@ -69,9 +69,69 @@ All endpoints except `POST /api/auth/login` require `Authorization: Bearer <toke
 - `PUT /api/invoice/:id` (billing.create) — update items/discount/customer while PENDING; also used to hold/resume/cancel via `status`
 
 ### Payments
-- `POST /api/payments/manual` (payments.take) `{invoiceId, method: 'CASH'|'UPI', amount, reference?}`
-- `POST /api/payments/initiate` (payments.take) `{invoiceId, provider}` — card providers (`PINELABS`, `WORLDLINE`) return `501` (not implemented)
-- `POST /api/payments/callback` — stub, updates payment by `reference`
+
+**Manual (cash/UPI) — unchanged, live:**
+- `POST /api/payments/manual` (payments.take) `{invoiceId, method: 'CASH'|'UPI', amount, reference?}` — records the payment and marks the invoice `PAID`/`CLOSED` synchronously.
+
+**Card-terminal lifecycle (Phase 2):**
+- `POST /api/payments/initiate` (payments.take) `{invoiceId, provider}` — `provider` must be one of `settings.paymentProviders.enabled` (e.g. `MOCK`, `PINELABS`, `WORLDLINE`). Validates the invoice is `paymentStatus: PENDING`. **Idempotent**: if a payment for this invoice is already `INITIATED`/`PROCESSING`, that same payment is returned with `200` instead of creating a duplicate. Otherwise creates a `Payment` (`method: 'CARD'`), calls the provider's `initiatePayment`, registers it with the in-process poller, emits `payment.updated`, and responds `201 {payment}`.
+- `GET /api/payments/:id` (payments.take) — returns the payment. If it is still `INITIATED`/`PROCESSING`, first calls the provider's `getStatus` and applies the result (via the shared `applyStatus` helper) before responding, so a client polling this endpoint gets an up-to-date status even if the background poller hasn't ticked yet.
+- `POST /api/payments/:id/cancel` (payments.take) — only valid while `INITIATED`/`PROCESSING`; calls the provider's `cancelPayment`, sets `CANCELLED`, emits `payment.updated`.
+- `POST /api/payments/callback/:provider` — **no auth**, vendor webhook. Looks up the provider adapter, calls `verifyCallback(req, config)` (rejects with `401` on a bad/missing signature), finds the payment by the reference in the payload, re-derives the authoritative status via `getStatus`, and applies it. `POST /api/payments/callback` (provider taken from the request body) is kept as a trivial alias for backward compatibility.
+
+#### Card payment lifecycle
+
+```
+cashier                 POS backend                         card terminal / vendor
+  |  POST /initiate           |                                       |
+  |--------------------------->|  create Payment(INITIATED)           |
+  |                            |  provider.initiatePayment() -------->|
+  |                            |<---------------- reference, PROCESSING
+  |                            |  save + register with poller          |
+  |<---- 201 {payment} --------|                                       |
+  |                            |                                       |
+  |                     [every 3s, up to 120s]                        |
+  |                            |  provider.getStatus() --------------->|
+  |                            |<----------------- SUCCESS/FAILED/... -|
+  |                            |  applyStatus() -> Payment + Invoice   |
+  |                            |  emit socket 'payment.updated'        |
+  |                            |  (SUCCESS also emits 'invoice.paid')  |
+  |                            |                                       |
+  |  GET /payments/:id  ------>|  (also nudges getStatus if still      |
+  |<---- {payment} ------------|   in-flight)                          |
+  |                            |                                       |
+  |  [or] vendor webhook ------------------------------------------->  |
+  |                            |  POST /callback/:provider             |
+  |                            |  verifyCallback() -> applyStatus()    |
+  |                            |                                       |
+  | POST /:id/cancel --------->|  provider.cancelPayment() ----------->|
+  |<---- {payment: CANCELLED}--|                                       |
+```
+
+`applyStatus` (in `payments.service.js`) is the single choke-point for status transitions: it is idempotent (a payment already in a terminal status — `SUCCESS`/`FAILED`/`CANCELLED`/`TIMEOUT` — is left alone on further calls, enforced atomically so a webhook and the poller can't double-process), never trusts client-supplied amounts (the invoice's own `total` is always used), and on `SUCCESS` mirrors exactly what the manual flow does: `invoice.paymentStatus = 'PAID'`, `paymentMethod`, `paymentTransactionId`, `status = 'CLOSED'`.
+
+On server boot, any payment left `INITIATED`/`PROCESSING` from a previous process (e.g. a restart mid-transaction) is automatically re-registered with the poller (`poller.resumeAll()` in `src/server.js`).
+
+#### `settings.paymentProviders`
+
+```json
+{
+  "enabled": ["MOCK"],
+  "mock":     { "delayMs": 5000, "outcome": "SUCCESS" },
+  "pinelabs": { "merchantId": "", "securityToken": "", "storeId": "", "clientId": "", "imei": "", "baseUrl": "https://www.plutuscloudserviceuat.in:8201" },
+  "worldline":{ "merchantCode": "", "terminalId": "", "securityToken": "", "baseUrl": "" }
+}
+```
+
+- `enabled` — which card providers cashiers may pass to `POST /api/payments/initiate`.
+- `mock` — only used by the `MOCK` provider. `outcome` can be `SUCCESS`, `FAILED`, or `TIMEOUT` (stays `PROCESSING` forever, so the poller's 120s ceiling ends it) — handy for QA without real hardware.
+- `pinelabs` / `worldline` — merchant credentials for the real terminal integrations. **`MOCK` is for development only. `PINELABS` and `WORLDLINE` require real merchant credentials from the payment provider before they will work** — until configured, requests to the vendor will fail and the poller will keep retrying (status stays `PROCESSING`) rather than falsely reporting success or failure.
+
+`PUT /api/settings` accepts a partial `paymentProviders` object — e.g. `{"paymentProviders":{"mock":{"outcome":"FAILED"}}}` only touches `mock.outcome` and leaves `delayMs`, `pinelabs`, `worldline`, etc. untouched.
+
+**Implementation notes on the two real providers:**
+- `PineLabsProvider` targets the Plutus Smart "Cloud Based Integration" API (`UploadBilledTransaction` / `GetCloudBasedTxnStatus` / `CancelTransaction`). It's poll-based by nature (no merchant webhook in that product line), so `verifyCallback` is intentionally left unimplemented — `POST /api/payments/callback/PINELABS` returns `501`.
+- `WorldlineProvider` implements the generic shape (initiate/status/cancel POSTs, HMAC-SHA512-signed) against a **placeholder** endpoint layout (all paths live in one `CONFIG` block at the top of `WorldlineProvider.js`) and a `verifyCallback` that checks an `x-worldline-signature` HMAC header against the raw request body. **The exact paths and payload shape must be confirmed against the merchant's actual Worldline integration document before production use.**
 
 ### Reports
 - `GET /api/reports/daily?date=YYYY-MM-DD` (reports.view)
@@ -96,4 +156,6 @@ All endpoints except `POST /api/auth/login` require `Authorization: Bearer <toke
 
 ## Realtime
 
-Socket.io server initialized in `src/server.js`. Emits `invoice.paid` when a manual payment is recorded successfully.
+Socket.io server initialized in `src/server.js`.
+- `invoice.paid` `{invoiceId, invoiceNumber, total, paymentMethod}` — emitted whenever a payment (manual or card) succeeds and the invoice is marked `PAID`.
+- `payment.updated` `{paymentId, invoiceId, status, invoiceNumber}` — emitted on every card-payment status transition (`initiate`, poller ticks, callback, cancel), so a POS screen can show live "processing → approved/declined" status.

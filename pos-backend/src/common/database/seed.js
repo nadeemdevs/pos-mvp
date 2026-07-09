@@ -138,6 +138,10 @@ async function seedSettings() {
       taxRate: 5,
       currency: 'INR',
       receiptFooter: 'Thank you for visiting!',
+      paymentProviders: {
+        enabled: ['MOCK'],
+        mock: { delayMs: 5000, outcome: 'SUCCESS' },
+      },
     });
   }
 }

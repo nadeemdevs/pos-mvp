@@ -20,7 +20,17 @@ const app = express();
 
 app.use(helmet());
 app.use(cors());
-app.use(express.json());
+// Capture the raw request body alongside the parsed one — needed by webhook
+// signature verification (e.g. WorldlineProvider.verifyCallback), since
+// JSON.stringify(req.body) doesn't reliably reproduce the exact bytes a vendor
+// signed (key ordering, whitespace, etc).
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf.toString('utf8');
+    },
+  })
+);
 app.use(morgan('dev'));
 
 const authLimiter = rateLimit({

@@ -14,6 +14,8 @@
   --success-bg: rgba(22, 163, 74, 0.12);
   --danger: #dc2626;
   --danger-bg: rgba(220, 38, 38, 0.1);
+  --warning: #b45309;
+  --warning-bg: rgba(217, 119, 6, 0.12);
   --muted-bg: #eef0f3;
   --radius: 10px;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
@@ -972,6 +974,149 @@ button, input, select, textarea {
   text-align: center;
   font-size: 12px;
   margin-top: 10px;
+}
+
+/* ---------- Card terminal payments ---------- */
+
+.card-single-provider {
+  margin-bottom: 16px;
+  color: var(--text-muted);
+}
+
+.card-waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 12px 0 4px;
+}
+
+.card-waiting-amount {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.card-waiting-provider {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-top: 2px;
+  margin-bottom: 18px;
+}
+
+.card-waiting-indicator {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.card-pulse-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: card-pulse 1.2s ease-in-out infinite;
+}
+
+.card-pulse-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.card-pulse-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes card-pulse {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.card-waiting-status {
+  font-weight: 600;
+  margin-bottom: 20px;
+  line-height: 1.8;
+}
+
+.card-error {
+  text-align: center;
+  padding: 8px 0 4px;
+}
+
+.card-error-reason {
+  color: var(--text-muted);
+  margin: 10px 0 4px;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.status-pill-initiated,
+.status-pill-processing {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.status-pill-success {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.status-pill-failed,
+.status-pill-cancelled,
+.status-pill-timeout {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* ---------- Settings: payment terminals ---------- */
+
+.payment-terminals-card .page-subtitle {
+  margin-bottom: 16px;
+}
+
+.provider-config {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.provider-config[open] {
+  padding-bottom: 16px;
+}
+
+.provider-config-summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.provider-config-summary::-webkit-details-marker {
+  display: none;
+}
+
+.provider-config-summary .checkbox-field {
+  margin-bottom: 0;
+  display: inline-flex;
+}
+
+.provider-config-body {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 /* Print handling: hide entire app, show only receipt */

@@ -90,6 +90,34 @@ export default function Receipt({ invoice, payment, settings }) {
                 <span>{payment.reference}</span>
               </div>
             )}
+            {payment.method === 'CARD' && (
+              <>
+                {payment.provider && (
+                  <div>
+                    <span>Terminal</span>
+                    <span>{payment.provider}</span>
+                  </div>
+                )}
+                {payment.cardDetails?.maskedPan && (
+                  <div>
+                    <span>Card</span>
+                    <span>{payment.cardDetails.maskedPan}</span>
+                  </div>
+                )}
+                {payment.cardDetails?.authCode && (
+                  <div>
+                    <span>Auth Code</span>
+                    <span>{payment.cardDetails.authCode}</span>
+                  </div>
+                )}
+                {payment.reference && (
+                  <div>
+                    <span>Reference</span>
+                    <span>{payment.reference}</span>
+                  </div>
+                )}
+              </>
+            )}
           </>
         )}
       </div>

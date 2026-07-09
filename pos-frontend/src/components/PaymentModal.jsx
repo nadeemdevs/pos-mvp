@@ -1,21 +1,64 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import Modal from './Modal'
 import { formatCurrency } from '../utils/format'
+import { cancelCardPayment, getPayment, initiateCardPayment } from '../services/paymentService'
 
 const QUICK_CASH = [100, 200, 500]
 
-export default function PaymentModal({ open, onClose, invoice, currency, onConfirm, isSubmitting }) {
+const PROVIDER_LABELS = {
+  MOCK: 'Mock Terminal (Dev)',
+  PINELABS: 'Pine Labs',
+  WORLDLINE: 'Worldline',
+}
+
+const POLLING_STATUSES = ['INITIATED', 'PROCESSING']
+
+const STATUS_TEXT = {
+  INITIATED: 'Sending to terminal…',
+  PROCESSING: 'Waiting for customer card…',
+}
+
+const FAILURE_TEXT = {
+  FAILED: 'Payment failed',
+  CANCELLED: 'Payment cancelled',
+  TIMEOUT: 'Payment timed out',
+}
+
+export default function PaymentModal({
+  open,
+  onClose,
+  invoice,
+  currency,
+  settings,
+  onConfirm,
+  onCardSuccess,
+  isSubmitting,
+}) {
   const [method, setMethod] = useState('CASH')
   const [tendered, setTendered] = useState('')
   const [reference, setReference] = useState('')
+
+  const enabledProviders = settings?.paymentProviders?.enabled || []
+  const cardEnabled = enabledProviders.length > 0
+
+  const [provider, setProvider] = useState('')
+  const [cardStage, setCardStage] = useState('select') // 'select' | 'waiting' | 'error'
+  const [cardPayment, setCardPayment] = useState(null)
+  const [cardError, setCardError] = useState('')
 
   useEffect(() => {
     if (open) {
       setMethod('CASH')
       setTendered('')
       setReference('')
+      setCardStage('select')
+      setCardPayment(null)
+      setCardError('')
+      setProvider(enabledProviders[0] || '')
     }
-  }, [open]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const total = invoice?.total || 0
 
@@ -23,6 +66,56 @@ export default function PaymentModal({ open, onClose, invoice, currency, onConfi
     const t = Number(tendered) || 0
     return Math.max(t - total, 0)
   }, [tendered, total])
+
+  const isPolling = !!cardPayment && POLLING_STATUSES.includes(cardPayment.status)
+
+  // Single funnel for both the initiate response and every poll response so
+  // SUCCESS/FAILED/CANCELLED/TIMEOUT are handled identically no matter which
+  // call surfaced the terminal status (covers the idempotent "already
+  // succeeded" case returned straight from initiate too).
+  const applyPaymentUpdate = (payment) => {
+    if (!payment) return
+    setCardPayment(payment)
+    if (!payment.status || POLLING_STATUSES.includes(payment.status)) {
+      setCardError('')
+      setCardStage('waiting')
+    } else if (payment.status === 'SUCCESS') {
+      setCardStage('waiting')
+      onCardSuccess?.(payment)
+    } else {
+      setCardError(payment.failureReason || FAILURE_TEXT[payment.status] || 'Payment failed')
+      setCardStage('error')
+    }
+  }
+
+  const initiateMutation = useMutation({
+    mutationFn: (prov) => initiateCardPayment(invoice._id || invoice.id, prov),
+    onSuccess: applyPaymentUpdate,
+    onError: (e) => {
+      setCardError(e.response?.data?.message || 'Failed to reach the card terminal')
+      setCardStage('error')
+    },
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: (id) => cancelCardPayment(id),
+    onSettled: () => {
+      setCardPayment(null)
+      setCardStage('select')
+    },
+  })
+
+  const { data: polledPayment } = useQuery({
+    queryKey: ['card-payment', cardPayment?._id],
+    queryFn: () => getPayment(cardPayment._id),
+    enabled: open && !!cardPayment?._id && isPolling,
+    refetchInterval: open && isPolling ? 2000 : false,
+  })
+
+  useEffect(() => {
+    if (polledPayment) applyPaymentUpdate(polledPayment)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [polledPayment])
 
   if (!invoice) return null
 
@@ -43,13 +136,123 @@ export default function PaymentModal({ open, onClose, invoice, currency, onConfi
     }
   }
 
+  const handleSendToTerminal = () => {
+    if (!provider || initiateMutation.isPending) return
+    setCardError('')
+    initiateMutation.mutate(provider)
+  }
+
+  const handleCancelTerminal = () => {
+    if (cardPayment?._id) {
+      cancelMutation.mutate(cardPayment._id)
+    } else {
+      setCardStage('select')
+    }
+  }
+
+  const handleTryAgain = () => {
+    setCardError('')
+    setCardPayment(null)
+    setCardStage('select')
+  }
+
+  const handleClose = () => {
+    if (isPolling && cardPayment?._id) {
+      // Best-effort cancel of the in-flight terminal transaction so it
+      // doesn't linger server-side once the modal is dismissed.
+      cancelCardPayment(cardPayment._id).catch(() => {})
+    }
+    onClose()
+  }
+
   const canConfirm =
     method === 'CASH'
       ? Number(tendered) >= total && Number(tendered) > 0
       : true
 
+  const renderCardWaiting = () => (
+    <div className="card-waiting">
+      <div className="card-waiting-amount">{formatCurrency(total, currency)}</div>
+      <div className="card-waiting-provider">{PROVIDER_LABELS[provider] || provider}</div>
+      <div className="card-waiting-indicator">
+        <span className="card-pulse-dot" />
+        <span className="card-pulse-dot" />
+        <span className="card-pulse-dot" />
+      </div>
+      <div className="card-waiting-status">
+        Waiting for card…
+        <br />
+        <span className={`status-pill status-pill-${(cardPayment?.status || 'INITIATED').toLowerCase()}`}>
+          {STATUS_TEXT[cardPayment?.status] || cardPayment?.status || 'Sending to terminal…'}
+        </span>
+      </div>
+      <div className="modal-actions">
+        <button
+          type="button"
+          className="btn btn-ghost"
+          disabled={cancelMutation.isPending}
+          onClick={handleCancelTerminal}
+        >
+          {cancelMutation.isPending ? 'Cancelling…' : 'Cancel'}
+        </button>
+      </div>
+    </div>
+  )
+
+  const renderCardError = () => (
+    <div className="card-error">
+      <div className={`status-pill status-pill-${(cardPayment?.status || 'failed').toLowerCase()}`}>
+        {FAILURE_TEXT[cardPayment?.status] || 'Payment failed'}
+      </div>
+      <p className="card-error-reason">{cardError}</p>
+      <div className="modal-actions">
+        <button type="button" className="btn btn-ghost" onClick={handleTryAgain}>
+          Back
+        </button>
+        <button type="button" className="btn btn-primary" onClick={handleSendToTerminal}>
+          Try Again
+        </button>
+      </div>
+    </div>
+  )
+
+  const renderCardSelect = () => (
+    <div>
+      {enabledProviders.length > 1 && (
+        <label className="field">
+          <span>Terminal / Provider</span>
+          <select value={provider} onChange={(e) => setProvider(e.target.value)}>
+            {enabledProviders.map((p) => (
+              <option key={p} value={p}>
+                {PROVIDER_LABELS[p] || p}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {enabledProviders.length === 1 && (
+        <p className="card-single-provider">
+          Terminal: <strong>{PROVIDER_LABELS[provider] || provider}</strong>
+        </p>
+      )}
+      <div className="modal-actions">
+        <button type="button" className="btn btn-ghost" onClick={handleClose}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={!provider || initiateMutation.isPending}
+          onClick={handleSendToTerminal}
+        >
+          {initiateMutation.isPending ? 'Sending…' : 'Send to Terminal'}
+        </button>
+      </div>
+    </div>
+  )
+
   return (
-    <Modal open={open} onClose={onClose} title="Take Payment" width="420px">
+    <Modal open={open} onClose={handleClose} title="Take Payment" width="420px">
       <div className="payment-total">
         <span>Amount Due</span>
         <span>{formatCurrency(total, currency)}</span>
@@ -59,6 +262,7 @@ export default function PaymentModal({ open, onClose, invoice, currency, onConfi
         <button
           type="button"
           className={`toggle-btn ${method === 'CASH' ? 'active' : ''}`}
+          disabled={isPolling}
           onClick={() => setMethod('CASH')}
         >
           Cash
@@ -66,13 +270,24 @@ export default function PaymentModal({ open, onClose, invoice, currency, onConfi
         <button
           type="button"
           className={`toggle-btn ${method === 'UPI' ? 'active' : ''}`}
+          disabled={isPolling}
           onClick={() => setMethod('UPI')}
         >
           UPI
         </button>
+        {cardEnabled && (
+          <button
+            type="button"
+            className={`toggle-btn ${method === 'CARD' ? 'active' : ''}`}
+            disabled={isPolling}
+            onClick={() => setMethod('CARD')}
+          >
+            Card
+          </button>
+        )}
       </div>
 
-      {method === 'CASH' ? (
+      {method === 'CASH' && (
         <div>
           <label className="field">
             <span>Tendered Amount</span>
@@ -108,7 +323,9 @@ export default function PaymentModal({ open, onClose, invoice, currency, onConfi
             <span>{formatCurrency(change, currency)}</span>
           </div>
         </div>
-      ) : (
+      )}
+
+      {method === 'UPI' && (
         <label className="field">
           <span>Reference / UTR (optional)</span>
           <input
@@ -119,19 +336,29 @@ export default function PaymentModal({ open, onClose, invoice, currency, onConfi
         </label>
       )}
 
-      <div className="modal-actions">
-        <button type="button" className="btn btn-ghost" onClick={onClose}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={!canConfirm || isSubmitting}
-          onClick={handleConfirm}
-        >
-          {isSubmitting ? 'Processing…' : 'Confirm Payment'}
-        </button>
-      </div>
+      {method === 'CARD' && (
+        <>
+          {cardStage === 'select' && renderCardSelect()}
+          {cardStage === 'waiting' && renderCardWaiting()}
+          {cardStage === 'error' && renderCardError()}
+        </>
+      )}
+
+      {method !== 'CARD' && (
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost" onClick={handleClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={!canConfirm || isSubmitting}
+            onClick={handleConfirm}
+          >
+            {isSubmitting ? 'Processing…' : 'Confirm Payment'}
+          </button>
+        </div>
+      )}
     </Modal>
   )
 }
