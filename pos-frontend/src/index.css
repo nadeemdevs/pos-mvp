@@ -2061,3 +2061,144 @@ button, input, select, textarea {
     display: none !important;
   }
 }
+
+/* ---------- Phase 5: inventory, purchasing, audit, branches ---------- */
+
+.stat-card-clickable {
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.stat-card-clickable:hover {
+  border-color: var(--accent);
+}
+
+.stat-value-danger {
+  color: var(--danger);
+}
+
+/* Inventory ledger */
+
+.ledger-qty-pos {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.ledger-qty-neg {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* Recipe editor (Menu item modal) */
+
+.recipe-editor-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.recipe-editor-row select {
+  flex: 1.5;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.recipe-editor-row input {
+  width: 90px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.recipe-unit-label {
+  min-width: 32px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.toolbar-spread {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* Purchase order line editor */
+
+.po-line-rows {
+  margin-bottom: 8px;
+}
+
+.po-line-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.po-line-row select {
+  flex: 2;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.po-line-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.po-line-total {
+  min-width: 90px;
+  text-align: right;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* Purchase order status pills (extend .status-pill from payments) */
+
+.status-pill-draft {
+  background: var(--muted-bg);
+  color: var(--text-muted);
+}
+
+.status-pill-placed {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.status-pill-partial {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.status-pill-received {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+/* Purchase order receive mode */
+
+.po-receive-row td {
+  vertical-align: middle;
+}
+
+.po-receive-input {
+  width: 90px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}

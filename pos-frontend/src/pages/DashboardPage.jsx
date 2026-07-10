@@ -1,12 +1,17 @@
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { getDailyReport } from '../services/reportService'
 import { getSettings } from '../services/settingsService'
+import { getLowStockItems } from '../services/inventoryService'
+import { useAuthStore } from '../store/authStore'
 import { formatCurrency, todayStr } from '../utils/format'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
 
 export default function DashboardPage() {
   const today = todayStr()
+  const navigate = useNavigate()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -17,6 +22,21 @@ export default function DashboardPage() {
     queryKey: ['reports', 'daily', today],
     queryFn: () => getDailyReport(today),
   })
+
+  const inventoryEnabled = !!settings?.features?.inventory
+  const canViewInventory = hasPermission('inventory.manage') || hasPermission('purchasing.manage')
+  const showLowStockCard = inventoryEnabled && canViewInventory
+
+  // The Inventory backend may not be deployed yet — request defensively and
+  // fall back to a dash rather than surfacing an error on the dashboard.
+  const { data: lowStockData, isError: lowStockError } = useQuery({
+    queryKey: ['inventory', 'low'],
+    queryFn: getLowStockItems,
+    enabled: showLowStockCard,
+    retry: false,
+  })
+  const lowStockItems = Array.isArray(lowStockData) ? lowStockData : lowStockData?.items || []
+  const lowStockCount = lowStockItems.length
 
   const currency = settings?.currency || 'INR'
 
@@ -53,6 +73,17 @@ export default function DashboardPage() {
           <span className="stat-label">Cancelled</span>
           <span className="stat-value">{data?.cancelled ?? 0}</span>
         </div>
+        {showLowStockCard && (
+          <div
+            className="stat-card stat-card-clickable"
+            onClick={() => navigate('/inventory?low=1')}
+          >
+            <span className="stat-label">Low Stock</span>
+            <span className={`stat-value ${lowStockCount > 0 ? 'stat-value-danger' : ''}`}>
+              {lowStockError ? '—' : lowStockCount}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="card">

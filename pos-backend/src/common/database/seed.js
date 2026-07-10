@@ -1,3 +1,6 @@
+// MUST be required before any model file (Role/User/... below) — registers
+// the global tenantId/branchId plugin. See tenantPlugin.js.
+require('./tenantPlugin');
 require('dotenv').config();
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
@@ -8,6 +11,7 @@ const User = require('../../modules/users/user.model');
 const Category = require('../../modules/menu/category.model');
 const MenuItem = require('../../modules/menu/menuItem.model');
 const Setting = require('../../modules/settings/setting.model');
+const Branch = require('../../modules/branches/branch.model');
 
 const ALL_PERMISSIONS = [
   'billing.create',
@@ -22,9 +26,17 @@ const ALL_PERMISSIONS = [
   'tables.manage',
   'orders.take',
   'kitchen.view',
+  'inventory.manage',
+  'purchasing.manage',
+  'branches.manage',
+  'audit.view',
 ];
 
-const MANAGER_PERMISSIONS = ALL_PERMISSIONS.filter((p) => p !== 'roles.manage');
+// Manager keeps everything it had before (all except roles.manage), plus
+// the two new operational permissions from Phase 5.1 — audit.view (Admin
+// only) and branches.manage stay off Manager per spec.
+const MANAGER_ONLY_EXCLUDED = ['roles.manage', 'audit.view', 'branches.manage'];
+const MANAGER_PERMISSIONS = ALL_PERMISSIONS.filter((p) => !MANAGER_ONLY_EXCLUDED.includes(p));
 
 const CASHIER_PERMISSIONS = ['billing.create', 'billing.view', 'payments.take', 'orders.take'];
 
@@ -156,6 +168,14 @@ async function seedSettings() {
   }
 }
 
+async function seedBranch() {
+  return Branch.findOneAndUpdate(
+    { code: 'main' },
+    { code: 'main', name: 'Main Branch', active: true },
+    { new: true, upsert: true }
+  );
+}
+
 async function run() {
   await mongoose.connect(config.mongoUri);
   console.log(`[seed] connected: ${config.mongoUri}`);
@@ -171,6 +191,9 @@ async function run() {
 
   await seedSettings();
   console.log('[seed] settings ensured');
+
+  await seedBranch();
+  console.log('[seed] branch upserted: main');
 
   console.log('[seed] done');
   await mongoose.disconnect();

@@ -13,6 +13,14 @@ const NAV_LINKS = [
   { to: '/menu', label: 'Menu', permission: 'menu.manage' },
   { to: '/categories', label: 'Categories', permission: 'menu.manage' },
   { to: '/reports', label: 'Reports', permission: 'reports.view' },
+  {
+    to: '/inventory',
+    label: 'Inventory',
+    permissions: ['inventory.manage', 'purchasing.manage'],
+    feature: 'inventory',
+  },
+  { to: '/purchasing', label: 'Purchasing', permission: 'purchasing.manage', feature: 'inventory' },
+  { to: '/audit', label: 'Audit', permission: 'audit.view' },
   { to: '/users', label: 'Users', permission: 'users.manage' },
   { to: '/roles', label: 'Roles', permission: 'roles.manage' },
   { to: '/settings', label: 'Settings', permission: 'settings.manage' },
@@ -33,6 +41,7 @@ export default function AppLayout() {
 
   const visibleLinks = NAV_LINKS.filter((link) => {
     if (link.dineIn && !dineInEnabled) return false
+    if (link.feature && !settings?.features?.[link.feature]) return false
     if (link.permissions) return link.permissions.some((p) => hasPermission(p))
     return !link.permission || hasPermission(link.permission)
   })

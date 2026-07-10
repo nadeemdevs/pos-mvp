@@ -2,8 +2,12 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getSettings, updateSettings } from '../services/settingsService'
 import { testPrint } from '../services/printService'
+import { createBranch, getBranches, updateBranch } from '../services/branchService'
+import { useAuthStore } from '../store/authStore'
 import { toast } from '../store/toastStore'
 import Spinner from '../components/Spinner'
+import Modal from '../components/Modal'
+import EmptyState from '../components/EmptyState'
 
 const emptyForm = {
   restaurantName: '',
@@ -29,7 +33,7 @@ const emptyPaymentProviders = {
 
 const emptyDiscounts = { maxPercent: '', presets: [] }
 const emptyRounding = { enabled: false, nearest: 1 }
-const emptyFeatures = { dineIn: false }
+const emptyFeatures = { dineIn: false, inventory: false, crm: false, loyalty: false, analytics: false }
 const emptyPrintTarget = { provider: 'BROWSER', host: '', port: '' }
 const emptyPrinting = { kot: { ...emptyPrintTarget }, receipt: { ...emptyPrintTarget } }
 
@@ -72,9 +76,14 @@ export default function SettingsPage() {
         nearest: data.rounding?.nearest ?? 1,
       })
       // features / printing are new in Phase 4 — older settings documents
-      // simply won't have them yet.
+      // simply won't have them yet. inventory/crm/loyalty/analytics are new
+      // in Phase 5.
       setFeatures({
         dineIn: data.features?.dineIn ?? false,
+        inventory: data.features?.inventory ?? false,
+        crm: data.features?.crm ?? false,
+        loyalty: data.features?.loyalty ?? false,
+        analytics: data.features?.analytics ?? false,
       })
       setPrinting({
         kot: { ...emptyPrintTarget, ...data.printing?.kot },
@@ -185,9 +194,12 @@ export default function SettingsPage() {
         enabled: rounding.enabled,
         nearest: Number(rounding.nearest) || 0,
       },
+      // Spread the whole edited features object on top of whatever the
+      // server currently has, so unrelated/future feature keys this form
+      // doesn't know about are preserved (non-clobbering merge).
       features: {
         ...(data?.features || {}),
-        dineIn: features.dineIn,
+        ...features,
       },
       printing: {
         ...(data?.printing || {}),
@@ -492,6 +504,38 @@ export default function SettingsPage() {
             />
             <span>Enable Dine-in mode (tables, waiter ordering, kitchen display)</span>
           </label>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={features.inventory}
+              onChange={(e) => setFeatures({ ...features, inventory: e.target.checked })}
+            />
+            <span>Enable Inventory (stock, recipes, purchasing)</span>
+          </label>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={features.crm}
+              onChange={(e) => setFeatures({ ...features, crm: e.target.checked })}
+            />
+            <span>Enable CRM</span>
+          </label>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={features.loyalty}
+              onChange={(e) => setFeatures({ ...features, loyalty: e.target.checked })}
+            />
+            <span>Enable Loyalty</span>
+          </label>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={features.analytics}
+              onChange={(e) => setFeatures({ ...features, analytics: e.target.checked })}
+            />
+            <span>Enable Analytics</span>
+          </label>
         </div>
 
         <div className="card settings-form printing-card">
@@ -568,6 +612,200 @@ export default function SettingsPage() {
           </pre>
         </div>
       )}
+
+      <BranchesCard />
+    </div>
+  )
+}
+
+const emptyBranchForm = { code: '', name: '', address: '', phone: '', active: true }
+
+// Multi-branch operation is out of scope for Phase 5 — this card only lets
+// Admins pre-register branch records for a later phase. All data (menu,
+// inventory, invoices, etc.) still lives in a single implicit "main" branch.
+function BranchesCard() {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const queryClient = useQueryClient()
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [form, setForm] = useState(emptyBranchForm)
+
+  const canManageBranches = hasPermission('branches.manage')
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['branches'],
+    queryFn: getBranches,
+    enabled: canManageBranches,
+  })
+  const branches = Array.isArray(data) ? data : data?.items || []
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['branches'] })
+
+  const createMutation = useMutation({
+    mutationFn: createBranch,
+    onSuccess: () => {
+      invalidate()
+      toast('Branch created', 'success')
+      closeModal()
+    },
+    onError: (e) => toast(e.response?.data?.message || 'Failed to create branch', 'error'),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data: patch }) => updateBranch(id, patch),
+    onSuccess: () => {
+      invalidate()
+      toast('Branch updated', 'success')
+      closeModal()
+    },
+    onError: (e) => toast(e.response?.data?.message || 'Failed to update branch', 'error'),
+  })
+
+  if (!canManageBranches) return null
+
+  const openCreate = () => {
+    setEditing(null)
+    setForm(emptyBranchForm)
+    setModalOpen(true)
+  }
+
+  const openEdit = (branch) => {
+    setEditing(branch)
+    setForm({
+      code: branch.code || '',
+      name: branch.name || '',
+      address: branch.address || '',
+      phone: branch.phone || '',
+      active: branch.active ?? true,
+    })
+    setModalOpen(true)
+  }
+
+  const closeModal = () => {
+    setModalOpen(false)
+    setEditing(null)
+    setForm(emptyBranchForm)
+  }
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (editing) {
+      updateMutation.mutate({ id: editing._id || editing.id, data: form })
+    } else {
+      createMutation.mutate(form)
+    }
+  }
+
+  return (
+    <div className="card settings-form">
+      <div className="page-header">
+        <h2>Branches</h2>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={openCreate}>
+          + Add Branch
+        </button>
+      </div>
+      <p className="page-subtitle">
+        Multi-branch operation — coming in a later phase; all data currently lives in the main
+        branch.
+      </p>
+
+      {isLoading ? (
+        <Spinner label="Loading branches…" />
+      ) : branches.length === 0 ? (
+        <EmptyState title="No branches yet" />
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {branches.map((b) => (
+              <tr key={b._id || b.id}>
+                <td>{b.code}</td>
+                <td>{b.name}</td>
+                <td>{b.phone || '—'}</td>
+                <td>
+                  <span className={`badge ${b.active === false ? 'badge-muted' : 'badge-success'}`}>
+                    {b.active === false ? 'Inactive' : 'Active'}
+                  </span>
+                </td>
+                <td className="table-actions">
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => openEdit(b)}>
+                    Edit
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <Modal
+        open={modalOpen}
+        onClose={closeModal}
+        title={editing ? 'Edit Branch' : 'New Branch'}
+        width="440px"
+      >
+        <form onSubmit={handleSubmit}>
+          <div className="field-row">
+            <label className="field">
+              <span>Code</span>
+              <input
+                required
+                autoFocus
+                value={form.code}
+                onChange={(e) => setForm({ ...form, code: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <span>Name</span>
+              <input
+                required
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </label>
+          </div>
+          <label className="field">
+            <span>Phone</span>
+            <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+          </label>
+          <label className="field">
+            <span>Address</span>
+            <textarea
+              rows={2}
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+            />
+          </label>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={form.active}
+              onChange={(e) => setForm({ ...form, active: e.target.checked })}
+            />
+            <span>Active</span>
+          </label>
+          <div className="modal-actions">
+            <button type="button" className="btn btn-ghost" onClick={closeModal}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {editing ? 'Save' : 'Create'}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

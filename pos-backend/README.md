@@ -3,6 +3,7 @@
 Restaurant POS backend supporting two modes. Express + MongoDB (Mongoose) + Socket.io.
 - **Mode 1** — counter billing (`/api/invoice`, `/api/payments`), unchanged since the MVP.
 - **Mode 2** — dine-in table service (`/api/tables`, `/api/orders`, `/api/kots`, `/api/print`), added in Phase 4. Gated for UI purposes by `settings.features.dineIn` (the APIs themselves are always available).
+- **Phase 5.1 (ERP core)** — multi-tenant/branch scaffolding, an in-process event bus, an audit trail, and inventory/recipes/purchasing (`/api/branches`, `/api/audit`, `/api/inventory`, `/api/vendors`, `/api/purchase-orders`). See [Phase 5.1: ERP core](#phase-51-erp-core) below.
 
 ## Setup
 
@@ -29,10 +30,19 @@ npm run seed
 ```
 
 Creates:
-- Roles: `Admin` (all permissions), `Manager` (all except `roles.manage`, including `customers.manage`), `Cashier` (`billing.create`, `billing.view`, `payments.take`, `orders.take`), `Waiter` (`orders.take`), `Kitchen` (`kitchen.view`)
+- Roles: `Admin` (all permissions), `Manager` (all except `roles.manage`, `audit.view` and `branches.manage` — see Permission strings below), `Cashier` (`billing.create`, `billing.view`, `payments.take`, `orders.take`), `Waiter` (`orders.take`), `Kitchen` (`kitchen.view`)
 - Admin user: `admin@pos.local` / `admin123`
 - Categories: Beverages, Snacks, Meals, Desserts, each with a few sample menu items (INR, 5% tax)
 - A default settings document
+- Branch: `main` / "Main Branch" (see Phase 5.1 below)
+
+### Tenant backfill migration
+
+Phase 5.1 added a global `tenantId`/`branchId` plugin (defaults `'default'`/`'main'`) to every Mongoose schema. Documents created before that plugin existed predate those fields — backfill them once (safe to re-run; only touches documents missing `tenantId`):
+
+```bash
+npm run migrate:tenant
+```
 
 ## Run
 
@@ -247,13 +257,13 @@ On server boot, any payment left `INITIATED`/`PROCESSING` from a previous proces
   - `discounts: { maxPercent: 100, presets: [{label, type: 'FLAT'|'PERCENT', value}] }` — `maxPercent` is the server-side cap enforced on invoice discounts for non-`Admin` users; `presets` is a client-facing list of quick-pick discounts.
   - `rounding: { enabled: false, nearest: 1 }` — when `enabled`, invoice totals are rounded to the nearest `nearest` and the delta is stored on the invoice as `roundOff`.
   - `printing: { kot: {provider: 'BROWSER'|'ESCPOS_NETWORK', host, port}, receipt: {...} }` — see Printing above.
-  - `features: { dineIn: false }` — gates the dine-in (Mode 2) **UI** only; `/api/tables`, `/api/orders`, `/api/kots`, `/api/print` stay available over the API regardless of this flag.
+  - `features: { dineIn: false, inventory: false, crm: true, loyalty: false, analytics: false }` — UI feature gates only; the underlying APIs (`/api/tables`, `/api/orders`, `/api/kots`, `/api/print`, `/api/inventory`, `/api/purchase-orders`, etc.) stay available regardless of these flags.
 
 ## Permission strings
 
-`billing.create`, `billing.view`, `menu.manage`, `reports.view`, `users.manage`, `roles.manage`, `settings.manage`, `payments.take`, `customers.manage`, `tables.manage`, `orders.take`, `kitchen.view`.
+`billing.create`, `billing.view`, `menu.manage`, `reports.view`, `users.manage`, `roles.manage`, `settings.manage`, `payments.take`, `customers.manage`, `tables.manage`, `orders.take`, `kitchen.view`, `inventory.manage`, `purchasing.manage`, `branches.manage`, `audit.view`.
 
-`Admin` role bypasses permission checks entirely. `Manager` has all of the above except `roles.manage`. `Cashier` has `billing.create`, `billing.view`, `payments.take`, `orders.take` — which is also enough to list/read/create customers (see Customers above), since cashiers look up and create customers mid-sale. `Waiter` has `orders.take` only (take orders, fire KOTs, request bills — no billing/settings access). `Kitchen` has `kitchen.view` only (KDS: list/advance KOTs, print tickets).
+`Admin` role bypasses permission checks entirely (and has every permission in the seed). `Manager` has all of the above **except** `roles.manage`, `branches.manage`, and `audit.view` — the audit trail and branch administration are Admin-only; Manager does get `inventory.manage` and `purchasing.manage`. `Cashier` has `billing.create`, `billing.view`, `payments.take`, `orders.take` — which is also enough to list/read/create customers (see Customers above), since cashiers look up and create customers mid-sale. `Waiter` has `orders.take` only (take orders, fire KOTs, request bills — no billing/settings access). `Kitchen` has `kitchen.view` only (KDS: list/advance KOTs, print tickets).
 
 ## Realtime
 
@@ -271,3 +281,104 @@ Events:
 - `payment.completed` `{invoiceId, orderId}` — floor. Emitted by `settleInvoicePaid` once a dine-in order's invoices are all `PAID` and the order closes.
 - `invoice.paid` `{invoiceId, invoiceNumber, total, paymentMethod}` — unchanged legacy event, still emitted (globally) whenever any payment (manual or card, Mode 1 or Mode 2) succeeds.
 - `payment.updated` `{paymentId, invoiceId, status, invoiceNumber}` — unchanged legacy event, still emitted (globally) on every card-payment status transition.
+
+---
+
+## Phase 5.1: ERP core
+
+Multi-tenancy scaffolding, an in-process event bus, an audit trail, and inventory/recipes/purchasing — the first slice of the ERP roadmap. Everything here is additive: Mode 1 and Mode 2 endpoints/behavior above are unchanged.
+
+### Multi-tenant / branch scaffolding
+
+`src/common/database/tenantPlugin.js` is a **global** Mongoose plugin (`mongoose.plugin(fn)`) that adds `tenantId` (default `'default'`, indexed) and `branchId` (default `'main'`, indexed) to **every** schema compiled after it's required — including nested subdocument schemas (order items, invoice items, PO lines, menu item modifiers/recipe lines, etc.), since Mongoose applies global plugins inside the `Schema` constructor itself. This is why it must be the very first `require` in any entrypoint that loads models:
+- `src/app.js` — first line, before any `*.routes.js` require (which transitively pull in controller → service → model chains).
+- `src/common/database/seed.js` and `src/common/database/migrateTenant.js` — first line.
+
+`src/common/middleware/tenantContext.js` sets `req.tenantId`/`req.branchId` (`'default'`/`'main'` unless `req.user.tenantId` or the `x-branch-id` header say otherwise). It's mounted globally in `app.js` right after body parsing (covers every request, including unauthenticated ones), and is **also** re-applied inside the branches/inventory/vendors/purchase-orders routers immediately after their own `router.use(requireAuth)` — because `requireAuth` itself is mounted per-router rather than globally, so `req.user` isn't populated yet when the global copy runs. The middleware is idempotent, so running it twice is harmless.
+
+**Branches** — `src/modules/branches/`: `Branch {code (unique), name, address, phone, active}`.
+- `GET /api/branches`, `GET /api/branches/:id` — any authenticated user.
+- `POST /api/branches`, `PUT /api/branches/:id`, `DELETE /api/branches/:id` (soft: `active=false`) — `branches.manage` (Admin only per the seed).
+
+**Migration** — `npm run migrate:tenant` (`src/common/database/migrateTenant.js`): iterates every collection in the connected database and runs `updateMany({tenantId: {$exists: false}}, {$set: {tenantId: 'default', branchId: 'main'}})`. Idempotent — a second run matches/modifies 0 documents.
+
+**Scoping caveat:** only the *new* Phase 5.1 modules (inventory, purchasing, branches) are written to be branch-aware in their queries. Existing modules (orders, invoices, menu, etc.) now carry `tenantId`/`branchId` fields via the plugin, but their read paths don't yet filter by them — actually scoping every existing query is deferred to a later slice.
+
+### Event bus — `src/common/eventBus.js`
+
+A thin wrapper over `node:events`:
+- `publish(event, payload)` — logs `[event] <name>`, best-effort mirrors the same event to the `floor` socket room (wrapped in try/catch, safe when socket.io isn't initialized), and synchronously emits on the underlying `EventEmitter` for in-process subscribers.
+- `subscribe(event, handler)` — registers an in-process listener.
+
+Subscribers are registered once, from `src/subscribers/index.js`, required by `server.js` after the DB connects:
+- `src/modules/audit/audit.subscriber.js` — logs `order.completed`.
+- `src/modules/inventory/stockDeduction.subscriber.js` — the automatic recipe deduction (see Inventory below).
+
+**Existing flows refactored to also publish** (their direct socket `emitTo` calls are kept as-is — `publish()` is additive, so these events currently reach the `floor` room twice: once via the original `emitTo` call, once via `eventBus.publish`'s own socket mirror):
+- `order.completed {order}` — `orders.service.settleInvoicePaid`, right when an order reaches `CLOSED`.
+- `payment.completed {invoiceId, orderId}` — same place, alongside the pre-existing socket-only emit.
+- `invoice.paid {invoice}` — both the manual-payment controller and the card `applyStatus` `SUCCESS` branch, right after the invoice is marked `PAID` (in addition to the pre-existing, differently-shaped `invoice.paid` socket broadcast in `payments.service.js`/`payments.controller.js` — same event name, different payload shape: the legacy one is a flat summary object, the bus one wraps the full `invoice` doc).
+
+**New events (Phase 5.1):**
+- `inventory.updated {inventoryItemId, branchId, currentStock}` — published on every `applyStockChange` call.
+- `stock.low {inventoryItemId, name, currentStock, minStock, branchId}` — published whenever a stock change leaves `currentStock < minStock`.
+
+### Audit — `src/modules/audit/`
+
+`AuditLog {userId, userName, action, entity, entityId, meta, at}` (+ `tenantId`/`branchId` via the plugin). `src/modules/audit/audit.service.js` exports `log({req?, user?, action, entity, entityId, meta})` — **fire-and-forget**: it wraps its own `AuditLog.create` in try/catch and never throws, so a failed audit write can never break the caller's main operation. Callers pass either `req` (pulls `user`/`tenantId`/`branchId` off it automatically) or an explicit `user`.
+
+Wired into: `auth.controller.login` (`auth.login`), `settings.controller.updateSettings` (`settings.update`), `inventory.controller.adjust` (`stock.adjust`), `purchasing.controller` create/place/receive/cancel (`po.create`/`po.place`/`po.receive`/`po.cancel`), `payments.controller.manual` and `payments.service.applyStatus`'s `SUCCESS` branch (`payment.manual`/`payment.card`), and the `order.completed` event-bus subscriber (`order.completed`).
+
+- `GET /api/audit?action=&entity=&from=&to=&page=&limit=` (`audit.view`) — newest first, `{items, total, page}`. In practice Admin-only, since only `Admin` has `audit.view` in the seed (and Admin always bypasses the permission check anyway).
+
+### Inventory & recipes — `src/modules/inventory/`
+
+`InventoryItem {name, sku, unit: 'g'|'kg'|'ml'|'l'|'pc', category, currentStock, minStock, avgCost, active}` — unique on `(tenantId, branchId, name)`. `StockTransaction {inventoryItemId, type: 'PURCHASE'|'CONSUMPTION'|'ADJUSTMENT'|'WASTAGE'|'RETURN', qty (signed), unitCost, refType: 'ORDER'|'INVOICE'|'PO'|'MANUAL', refId, note, balanceAfter, by: {id, name}}`.
+
+`inventory.service.applyStockChange({itemId, type, qty, unitCost?, refType, refId, note?, user?})` is the one place every stock mutation goes through (manual adjust/wastage, PO receiving, automatic recipe deduction):
+1. Reads the item's current `currentStock`/`avgCost`.
+2. `findByIdAndUpdate` with `$inc: {currentStock: qty}` (and `$set: {avgCost}` for `PURCHASE` — see weighted-average formula below), reading the result back.
+3. Creates the `StockTransaction` with `balanceAfter` from the read-back value.
+4. Publishes `inventory.updated`, and `stock.low` if the new `currentStock < minStock`.
+
+Not a true multi-document transaction (no new deps; the standalone Mongo deployment here has no replica set to run one on) — there's a small read-then-write race window under heavy concurrent writers on the *same* item, an accepted tradeoff for this phase.
+
+**Weighted average cost** (on `PURCHASE` transactions with a `unitCost`): `avgCost' = (max(oldStock, 0) × oldAvgCost + qty × unitCost) / (max(oldStock, 0) + qty)`. Verified: item starts at 0/₹0; receive 4kg @ ₹22 → avgCost ₹22; receive 6 more @ ₹20 → `(4×22 + 6×20)/10 = 20.8`.
+
+Endpoints (`inventory.manage` for writes; reads also allow `purchasing.manage`):
+- `GET /api/inventory?search=&low=true&page=&limit=` → `{items, total, page}`
+- `GET /api/inventory/low` — items where `currentStock < minStock`, active only
+- `GET /api/inventory/:id`, `GET /api/inventory/:id/ledger?page=&limit=` (newest first)
+- `POST /api/inventory`, `PUT /api/inventory/:id`, `DELETE /api/inventory/:id` (soft: `active=false`)
+- `POST /api/inventory/:id/adjust {qty (signed), type: 'ADJUSTMENT'|'WASTAGE', note?}` → `applyStockChange` (`refType: 'MANUAL'`) + audit log
+
+**Recipes** are embedded directly on `MenuItem` (`recipe: [{inventoryItemId, qty, unit}]`, `qty` = amount of that inventory item consumed per 1 sold unit) — a deliberate deviation from separate `Recipe`/`RecipeIngredient` collections, for the same reason order items are embedded on `Order`: a recipe is only ever read/written alongside its menu item, so a join buys nothing. `POST`/`PUT /api/menu` validate every `recipe[].inventoryItemId` actually exists before saving (`400` otherwise).
+
+**Automatic deduction** (`src/modules/inventory/stockDeduction.subscriber.js`):
+- On `order.completed` (dine-in, Mode 2): for each order item whose menu item has a non-empty `recipe`, a `CONSUMPTION` transaction of `-(recipe.qty × item.qty)` per recipe line, `refType: 'ORDER'`.
+- On `invoice.paid`, **only when `invoice.orderId` is unset** (counter sale, Mode 1): same deduction logic against the invoice's items, `refType: 'INVOICE'`. Dine-in invoices (`orderId` set) are skipped here — they're deducted via `order.completed` instead, so a dine-in sale is never double-deducted by construction, not just by the idempotency flag below.
+- **Idempotency:** both `Order` and `Invoice` carry a plain `stockDeducted` boolean (default `false`). The subscriber atomically claims the right to deduct via `findOneAndUpdate({_id, stockDeducted: {$ne: true}}, {$set: {stockDeducted: true}})` *before* looping over items — a duplicate `order.completed`/`invoice.paid` publish (e.g. a retried webhook) finds no matching document the second time and no-ops. Equal-split synthetic invoices (`orders/split.js` `splitEqually`) have no `menuItemId` on their synthetic line, so they naturally produce zero deduction lines.
+- Deduction failures are caught and logged (`console.error`) per recipe line/item — they never propagate back to break the payment or order-close flow that triggered them.
+
+### Purchasing — `src/modules/purchasing/`
+
+`Vendor {name, phone, email, gstin, address, active}` — CRUD at `/api/vendors` (`purchasing.manage` for writes; reads also allow `inventory.manage`).
+
+`PurchaseOrder {poNumber ('PO-YYYYMMDD-XXX'), vendorId, vendorName, status, items: [{inventoryItemId, name, unit, qty, unitCost, receivedQty}], subtotal, expectedAt, note}`.
+
+**PO FSM** (`src/modules/purchasing/po.machine.js`, tested in `po.machine.test.js`):
+```
+DRAFT ──► PLACED ──┬──► PARTIALLY_RECEIVED ──┬──► RECEIVED
+                    │        ▲───────────────┘
+                    └──────────────────────────► RECEIVED
+DRAFT, PLACED ──► CANCELLED
+```
+(`PARTIALLY_RECEIVED → PARTIALLY_RECEIVED` is allowed — receiving more of a partially-received PO stays in that state until every line is fully received.)
+
+Endpoints (`purchasing.manage`):
+- `GET /api/purchase-orders?status=&page=&limit=`, `GET /api/purchase-orders/:id`
+- `POST /api/purchase-orders {vendorId, items: [{inventoryItemId, qty, unitCost}], expectedAt?, note?}` — creates `DRAFT`, validates every `inventoryItemId` exists, computes `subtotal`.
+- `PUT /api/purchase-orders/:id` — `DRAFT` only (vendor/items/note).
+- `POST /api/purchase-orders/:id/place` — `DRAFT → PLACED`.
+- `POST /api/purchase-orders/:id/cancel` — `DRAFT`/`PLACED → CANCELLED` only (never once any line has been received).
+- `POST /api/purchase-orders/:id/receive {items: [{itemId (the PO line's own _id), qty, unitCost?}]}` — validates each line exists and `receivedQty + qty ≤ ordered qty` (`400` otherwise, naming the shortfall), creates a `PURCHASE` stock transaction per line via `applyStockChange` (`unitCost` defaults to the line's own `unitCost`, driving the weighted-`avgCost` update), then sets status to `RECEIVED` if every line is now fully received, else `PARTIALLY_RECEIVED`. Every receive call is audit-logged (`po.receive`).

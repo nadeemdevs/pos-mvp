@@ -7,6 +7,8 @@ import {
   getMenuItems,
   updateMenuItem,
 } from '../services/menuService'
+import { getInventoryItems } from '../services/inventoryService'
+import { getSettings } from '../services/settingsService'
 import Modal from '../components/Modal'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Spinner from '../components/Spinner'
@@ -22,6 +24,7 @@ const emptyForm = {
   taxRate: '',
   active: true,
   modifiers: [],
+  recipe: [],
 }
 
 export default function MenuPage() {
@@ -40,6 +43,24 @@ export default function MenuPage() {
   const categories = Array.isArray(categoriesData)
     ? categoriesData
     : categoriesData?.items || []
+
+  // Recipes are a Phase 5 feature — gated behind settings.features.inventory,
+  // same as the Inventory/Purchasing nav links.
+  const { data: settingsData } = useQuery({
+    queryKey: ['settings'],
+    queryFn: getSettings,
+    staleTime: 5 * 60 * 1000,
+  })
+  const inventoryEnabled = !!settingsData?.features?.inventory
+
+  const { data: inventoryOptionsData } = useQuery({
+    queryKey: ['inventory', 'recipe-options'],
+    queryFn: () => getInventoryItems({ limit: 100 }),
+    enabled: inventoryEnabled,
+  })
+  const inventoryOptions = Array.isArray(inventoryOptionsData)
+    ? inventoryOptionsData
+    : inventoryOptionsData?.items || []
 
   const { data, isLoading } = useQuery({
     queryKey: ['menu', { category: categoryFilter, search }],
@@ -99,6 +120,7 @@ export default function MenuPage() {
       taxRate: item.taxRate ?? '',
       active: item.active ?? true,
       modifiers: Array.isArray(item.modifiers) ? item.modifiers.map((m) => ({ ...m })) : [],
+      recipe: Array.isArray(item.recipe) ? item.recipe.map((r) => ({ ...r })) : [],
     })
     setModalOpen(true)
   }
@@ -116,6 +138,28 @@ export default function MenuPage() {
 
   const removeModifierRow = (idx) => {
     setForm((f) => ({ ...f, modifiers: f.modifiers.filter((_, i) => i !== idx) }))
+  }
+
+  const addRecipeRow = () => {
+    setForm((f) => ({ ...f, recipe: [...f.recipe, { inventoryItemId: '', qty: '', unit: '' }] }))
+  }
+
+  const updateRecipeRow = (idx, field, value) => {
+    setForm((f) => ({
+      ...f,
+      recipe: f.recipe.map((r, i) => {
+        if (i !== idx) return r
+        if (field === 'inventoryItemId') {
+          const invItem = inventoryOptions.find((opt) => (opt._id || opt.id) === value)
+          return { ...r, inventoryItemId: value, unit: invItem?.unit || '' }
+        }
+        return { ...r, [field]: value }
+      }),
+    }))
+  }
+
+  const removeRecipeRow = (idx) => {
+    setForm((f) => ({ ...f, recipe: f.recipe.filter((_, i) => i !== idx) }))
   }
 
   const closeModal = () => {
@@ -136,6 +180,17 @@ export default function MenuPage() {
       modifiers: form.modifiers
         .filter((m) => m.name.trim())
         .map((m) => ({ name: m.name.trim(), price: Number(m.price) || 0 })),
+      ...(inventoryEnabled
+        ? {
+            recipe: form.recipe
+              .filter((r) => r.inventoryItemId)
+              .map((r) => ({
+                inventoryItemId: r.inventoryItemId,
+                qty: Number(r.qty) || 0,
+                unit: r.unit,
+              })),
+          }
+        : {}),
     }
     if (editing) {
       updateMutation.mutate({ id: editing._id || editing.id, data: payload })
@@ -200,6 +255,7 @@ export default function MenuPage() {
                 <th>Price</th>
                 <th>Tax %</th>
                 <th>Modifiers</th>
+                {inventoryEnabled && <th>Recipe</th>}
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -219,6 +275,15 @@ export default function MenuPage() {
                       '—'
                     )}
                   </td>
+                  {inventoryEnabled && (
+                    <td>
+                      {Array.isArray(item.recipe) && item.recipe.length > 0 ? (
+                        <span className="badge badge-info">{item.recipe.length} ingredients</span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                  )}
                   <td>
                     <span className={`badge ${item.active ? 'badge-success' : 'badge-muted'}`}>
                       {item.active ? 'Active' : 'Inactive'}
@@ -333,6 +398,52 @@ export default function MenuPage() {
           <button type="button" className="btn btn-ghost btn-sm modifier-add-btn" onClick={addModifierRow}>
             + Add modifier
           </button>
+
+          {inventoryEnabled && (
+            <>
+              <span className="field-label">Recipe</span>
+              <div className="modifier-editor-rows">
+                {form.recipe.map((r, idx) => (
+                  <div className="recipe-editor-row" key={idx}>
+                    <select
+                      value={r.inventoryItemId}
+                      onChange={(e) => updateRecipeRow(idx, 'inventoryItemId', e.target.value)}
+                    >
+                      <option value="">Select ingredient…</option>
+                      {inventoryOptions.map((opt) => (
+                        <option key={opt._id || opt.id} value={opt._id || opt.id}>
+                          {opt.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="Qty"
+                      value={r.qty}
+                      onChange={(e) => updateRecipeRow(idx, 'qty', e.target.value)}
+                    />
+                    <span className="recipe-unit-label">{r.unit || '—'}</span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm btn-danger-text"
+                      onClick={() => removeRecipeRow(idx)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm modifier-add-btn"
+                onClick={addRecipeRow}
+              >
+                + Add ingredient
+              </button>
+            </>
+          )}
 
           <label className="checkbox-field">
             <input

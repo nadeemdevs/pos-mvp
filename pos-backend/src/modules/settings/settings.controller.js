@@ -1,5 +1,6 @@
 const Setting = require('./setting.model');
 const asyncHandler = require('../../common/utils/asyncHandler');
+const auditService = require('../audit/audit.service');
 
 const getSettings = asyncHandler(async (req, res) => {
   let settings = await Setting.findOne();
@@ -77,6 +78,10 @@ function mergeFeatures(current, incoming) {
   const merged = { ...currentObj };
 
   if (incoming.dineIn !== undefined) merged.dineIn = incoming.dineIn;
+  if (incoming.inventory !== undefined) merged.inventory = incoming.inventory;
+  if (incoming.crm !== undefined) merged.crm = incoming.crm;
+  if (incoming.loyalty !== undefined) merged.loyalty = incoming.loyalty;
+  if (incoming.analytics !== undefined) merged.analytics = incoming.analytics;
 
   return merged;
 }
@@ -129,6 +134,15 @@ const updateSettings = asyncHandler(async (req, res) => {
   }
 
   await settings.save();
+
+  auditService.log({
+    req,
+    action: 'settings.update',
+    entity: 'Setting',
+    entityId: settings._id,
+    meta: req.body,
+  });
+
   res.json(settings);
 });
 

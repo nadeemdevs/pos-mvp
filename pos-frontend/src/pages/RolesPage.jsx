@@ -20,12 +20,20 @@ const ALL_PERMISSIONS = [
   'tables.manage',
   'orders.take',
   'kitchen.view',
+  'inventory.manage',
+  'purchasing.manage',
+  'branches.manage',
+  'audit.view',
 ]
 
 const PERMISSION_LABELS = {
   'tables.manage': 'Manage Tables (create/edit tables, zones)',
   'orders.take': 'Take Orders (waiter — dine-in ordering)',
   'kitchen.view': 'Kitchen Display (view/update KOTs)',
+  'inventory.manage': 'Manage Inventory (items, stock adjustments, ledger)',
+  'purchasing.manage': 'Manage Purchasing (vendors, purchase orders)',
+  'branches.manage': 'Manage Branches',
+  'audit.view': 'View Audit Log',
 }
 
 const emptyForm = { name: '', permissions: [] }

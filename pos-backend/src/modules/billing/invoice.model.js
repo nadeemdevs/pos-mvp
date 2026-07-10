@@ -49,6 +49,10 @@ const invoiceSchema = new mongoose.Schema(
     // leave these unset and behave exactly as before.
     orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order', index: true },
     orderNumber: { type: String },
+    // Idempotency guard for the automatic recipe-based stock deduction
+    // subscriber — only relevant for Mode 1 (counter sale) invoices, i.e.
+    // orderId unset. See src/modules/inventory/stockDeduction.subscriber.js.
+    stockDeducted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

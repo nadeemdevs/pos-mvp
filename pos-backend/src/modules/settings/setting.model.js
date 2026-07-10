@@ -73,6 +73,12 @@ const featuresSchema = new mongoose.Schema(
     // Gates the dine-in (Mode 2) UI. Backend APIs (tables/orders/kots) stay
     // available regardless of this flag.
     dineIn: { type: Boolean, default: false },
+    // Phase 5.1 ERP-core feature gates — UI-facing flags only, same pattern
+    // as dineIn. Backend APIs (inventory/purchasing/etc.) are always live.
+    inventory: { type: Boolean, default: false },
+    crm: { type: Boolean, default: true },
+    loyalty: { type: Boolean, default: false },
+    analytics: { type: Boolean, default: false },
   },
   { _id: false }
 );

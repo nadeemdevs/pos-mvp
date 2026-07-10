@@ -43,6 +43,11 @@ const orderSchema = new mongoose.Schema(
     invoiceIds: { type: [mongoose.Schema.Types.ObjectId], ref: 'Invoice', default: [] },
     note: { type: String },
     paidAt: { type: Date },
+    // Idempotency guard for the automatic recipe-based stock deduction
+    // subscriber (src/modules/inventory/stockDeduction.subscriber.js) —
+    // claimed atomically via findOneAndUpdate before deducting, so a
+    // duplicate 'order.completed' publish never double-deducts.
+    stockDeducted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

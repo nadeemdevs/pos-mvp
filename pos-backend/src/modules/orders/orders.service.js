@@ -9,6 +9,7 @@ const { splitByItems, splitEqually } = require('./split');
 const { nextOrderNumber } = require('../../common/utils/orderNumber');
 const { nextKotNumber } = require('../../common/utils/kotNumber');
 const { emitTo } = require('../../sockets');
+const eventBus = require('../../common/eventBus');
 
 function round2(n) {
   return Math.round(n * 100) / 100;
@@ -440,6 +441,13 @@ async function settleInvoicePaid(invoice) {
 
   emitTo('floor', 'payment.completed', { invoiceId: invoice._id, orderId: order._id });
   emitTo('floor', 'order.closed', { orderId: order._id, orderNumber: order.orderNumber, status: 'CLOSED' });
+
+  // Event-bus publishes — additive on top of the direct socket emits above
+  // (both fire; see common/eventBus.js). 'order.completed' is the trigger
+  // the inventory module's automatic recipe deduction subscriber listens
+  // for, and the audit subscriber logs it too.
+  eventBus.publish('payment.completed', { invoiceId: invoice._id, orderId: order._id });
+  eventBus.publish('order.completed', { order });
 
   return order;
 }

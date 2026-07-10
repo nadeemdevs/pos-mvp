@@ -3,6 +3,8 @@ const Payment = require('./payment.model');
 const Setting = require('../settings/setting.model');
 const { getIO } = require('../../sockets');
 const ordersService = require('../orders/orders.service');
+const eventBus = require('../../common/eventBus');
+const auditService = require('../audit/audit.service');
 
 const TERMINAL_STATUSES = ['SUCCESS', 'FAILED', 'CANCELLED', 'TIMEOUT'];
 const ACTIVE_STATUSES = ['INITIATED', 'PROCESSING'];
@@ -73,9 +75,18 @@ async function applyStatus(paymentOrId, { status, rawResponse, cardDetails, fail
       total: invoice.total,
       paymentMethod: invoice.paymentMethod,
     });
+    eventBus.publish('invoice.paid', { invoice });
 
     // Mode 2 (dine-in) settlement hook — no-op for Mode 1 invoices.
     await ordersService.settleInvoicePaid(invoice);
+
+    auditService.log({
+      user: payment.receivedBy,
+      action: 'payment.card',
+      entity: 'Invoice',
+      entityId: invoice._id,
+      meta: { provider: payment.provider, amount: payment.amount, invoiceNumber: invoice.invoiceNumber },
+    });
   }
 
   emit('payment.updated', {

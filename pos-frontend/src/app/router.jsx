@@ -14,6 +14,9 @@ import ReportsPage from '../pages/ReportsPage'
 import UsersPage from '../pages/UsersPage'
 import RolesPage from '../pages/RolesPage'
 import SettingsPage from '../pages/SettingsPage'
+import InventoryPage from '../pages/InventoryPage'
+import PurchasingPage from '../pages/PurchasingPage'
+import AuditPage from '../pages/AuditPage'
 
 export const router = createBrowserRouter([
   {
@@ -57,6 +60,23 @@ export const router = createBrowserRouter([
           {
             element: <ProtectedRoute permission="reports.view" />,
             children: [{ path: '/reports', element: <ReportsPage /> }],
+          },
+          {
+            element: (
+              <ProtectedRoute
+                anyPermission={['inventory.manage', 'purchasing.manage']}
+                requireFeature="inventory"
+              />
+            ),
+            children: [{ path: '/inventory', element: <InventoryPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="purchasing.manage" requireFeature="inventory" />,
+            children: [{ path: '/purchasing', element: <PurchasingPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="audit.view" />,
+            children: [{ path: '/audit', element: <AuditPage /> }],
           },
           {
             element: <ProtectedRoute permission="users.manage" />,

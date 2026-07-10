@@ -9,16 +9,19 @@ import { getSettings } from '../services/settingsService'
 // tables.manage). `requireDineIn` additionally hides the route entirely
 // unless settings.features.dineIn is on — used for all Phase 4 routes so
 // they stay invisible until the feature is switched on, regardless of how
-// the URL is reached.
-export default function ProtectedRoute({ permission, anyPermission, requireDineIn }) {
+// the URL is reached. `requireFeature` is the generic Phase 5 equivalent —
+// pass a settings.features key (e.g. "inventory") to hide the route unless
+// that flag is on.
+export default function ProtectedRoute({ permission, anyPermission, requireDineIn, requireFeature }) {
   const token = useAuthStore((s) => s.token)
   const hasPermission = useAuthStore((s) => s.hasPermission)
 
+  const needsSettings = !!requireDineIn || !!requireFeature
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: getSettings,
     staleTime: 5 * 60 * 1000,
-    enabled: !!token && !!requireDineIn,
+    enabled: !!token && needsSettings,
   })
 
   if (!token) {
@@ -33,9 +36,14 @@ export default function ProtectedRoute({ permission, anyPermission, requireDineI
     return <Navigate to="/" replace />
   }
 
-  // Once settings have loaded, redirect away if dine-in is disabled. While
-  // loading we let the route render rather than block on every navigation.
+  // Once settings have loaded, redirect away if the required feature flag is
+  // off. While loading we let the route render rather than block on every
+  // navigation.
   if (requireDineIn && settings && !settings.features?.dineIn) {
+    return <Navigate to="/" replace />
+  }
+
+  if (requireFeature && settings && !settings.features?.[requireFeature]) {
     return <Navigate to="/" replace />
   }
 

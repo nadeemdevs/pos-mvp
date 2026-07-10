@@ -1,3 +1,9 @@
+// MUST be the first require in the app — registers the global tenantId/
+// branchId mongoose plugin before any model file below gets required (every
+// require of a *.routes.js pulls in its controller -> service -> model
+// chain). See src/common/database/tenantPlugin.js for why order matters.
+require('./common/database/tenantPlugin');
+
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
@@ -5,6 +11,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 
 const { notFound, errorHandler } = require('./common/middleware/error');
+const tenantContext = require('./common/middleware/tenantContext');
 
 const authRoutes = require('./modules/auth/auth.routes');
 const usersRoutes = require('./modules/users/users.routes');
@@ -20,6 +27,11 @@ const tablesRoutes = require('./modules/tables/tables.routes');
 const ordersRoutes = require('./modules/orders/orders.routes');
 const kotsRoutes = require('./modules/kots/kots.routes');
 const printingRoutes = require('./modules/printing/printing.routes');
+const branchesRoutes = require('./modules/branches/branches.routes');
+const auditRoutes = require('./modules/audit/audit.routes');
+const inventoryRoutes = require('./modules/inventory/inventory.routes');
+const vendorsRoutes = require('./modules/purchasing/vendors.routes');
+const purchaseOrdersRoutes = require('./modules/purchasing/purchasing.routes');
 
 const app = express();
 
@@ -37,6 +49,14 @@ app.use(
   })
 );
 app.use(morgan('dev'));
+
+// Sets req.tenantId/req.branchId with 'default'/'main' defaults for every
+// request (including unauthenticated ones). Since requireAuth is mounted
+// per-router rather than globally, the new tenant-aware routers
+// (branches/inventory/purchasing) re-apply this middleware after their own
+// router.use(requireAuth) so req.user is available when it runs there too —
+// see common/middleware/tenantContext.js.
+app.use(tenantContext);
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -63,6 +83,11 @@ app.use('/api/tables', tablesRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/kots', kotsRoutes);
 app.use('/api/print', printingRoutes);
+app.use('/api/branches', branchesRoutes);
+app.use('/api/audit', auditRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/vendors', vendorsRoutes);
+app.use('/api/purchase-orders', purchaseOrdersRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

@@ -5,6 +5,7 @@ const config = require('./config');
 const connectDB = require('./common/database/connect');
 const { initSocket } = require('./sockets');
 const poller = require('./modules/payments/poller');
+const subscribers = require('./subscribers');
 
 const server = http.createServer(app);
 initSocket(server);
@@ -17,6 +18,8 @@ mongoose.connection.once('connected', () => {
   poller.resumeAll().catch((err) => {
     console.error('[poller] resumeAll failed:', err.message);
   });
+
+  subscribers.init();
 });
 
 server.listen(config.port, () => {
