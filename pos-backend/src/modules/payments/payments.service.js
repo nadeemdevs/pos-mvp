@@ -2,6 +2,7 @@ const Invoice = require('../billing/invoice.model');
 const Payment = require('./payment.model');
 const Setting = require('../settings/setting.model');
 const { getIO } = require('../../sockets');
+const ordersService = require('../orders/orders.service');
 
 const TERMINAL_STATUSES = ['SUCCESS', 'FAILED', 'CANCELLED', 'TIMEOUT'];
 const ACTIVE_STATUSES = ['INITIATED', 'PROCESSING'];
@@ -72,6 +73,9 @@ async function applyStatus(paymentOrId, { status, rawResponse, cardDetails, fail
       total: invoice.total,
       paymentMethod: invoice.paymentMethod,
     });
+
+    // Mode 2 (dine-in) settlement hook — no-op for Mode 1 invoices.
+    await ordersService.settleInvoicePaid(invoice);
   }
 
   emit('payment.updated', {

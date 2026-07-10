@@ -44,6 +44,11 @@ const invoiceSchema = new mongoose.Schema(
       id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       name: { type: String },
     },
+    // Present only for invoices created from a dine-in Order (Mode 2) via
+    // InvoiceService.createFromOrder. Mode 1 invoices (POST /api/invoice)
+    // leave these unset and behave exactly as before.
+    orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order', index: true },
+    orderNumber: { type: String },
   },
   { timestamps: true }
 );

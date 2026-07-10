@@ -51,6 +51,36 @@ function mergeRounding(current, incoming) {
   return merged;
 }
 
+// Same shallow-merge idea, one level deeper: printing.{kot,receipt} are each
+// sub-objects of their own, so a PUT touching only printing.kot.host must not
+// wipe printing.kot.port or printing.receipt entirely.
+function mergePrinterTarget(current, incoming) {
+  const currentObj = current && current.toObject ? current.toObject() : current || {};
+  return { ...currentObj, ...incoming };
+}
+
+function mergePrinting(current, incoming) {
+  const currentObj = current && current.toObject ? current.toObject() : current || {};
+  const merged = { ...currentObj };
+
+  for (const key of ['kot', 'receipt']) {
+    if (incoming[key]) {
+      merged[key] = mergePrinterTarget(currentObj[key], incoming[key]);
+    }
+  }
+
+  return merged;
+}
+
+function mergeFeatures(current, incoming) {
+  const currentObj = current && current.toObject ? current.toObject() : current || {};
+  const merged = { ...currentObj };
+
+  if (incoming.dineIn !== undefined) merged.dineIn = incoming.dineIn;
+
+  return merged;
+}
+
 const updateSettings = asyncHandler(async (req, res) => {
   const {
     restaurantName,
@@ -62,6 +92,8 @@ const updateSettings = asyncHandler(async (req, res) => {
     paymentProviders,
     discounts,
     rounding,
+    printing,
+    features,
   } = req.body;
 
   let settings = await Setting.findOne();
@@ -86,6 +118,14 @@ const updateSettings = asyncHandler(async (req, res) => {
 
   if (rounding) {
     settings.rounding = mergeRounding(settings.rounding, rounding);
+  }
+
+  if (printing) {
+    settings.printing = mergePrinting(settings.printing, printing);
+  }
+
+  if (features) {
+    settings.features = mergeFeatures(settings.features, features);
   }
 
   await settings.save();

@@ -4,6 +4,7 @@ const Payment = require('./payment.model');
 const factory = require('./PaymentProviderFactory');
 const poller = require('./poller');
 const { applyStatus, getPaymentConfig, emit, TERMINAL_STATUSES, ACTIVE_STATUSES } = require('./payments.service');
+const ordersService = require('../orders/orders.service');
 
 // --- Manual cash/UPI flow — unchanged behavior, still live at POST /api/payments/manual ---
 const manual = asyncHandler(async (req, res) => {
@@ -47,6 +48,11 @@ const manual = asyncHandler(async (req, res) => {
     total: invoice.total,
     paymentMethod: invoice.paymentMethod,
   });
+
+  // Mode 2 (dine-in): if this invoice belongs to an Order and every invoice
+  // on that order is now PAID, close the order and free its table. No-op for
+  // Mode 1 invoices (invoice.orderId unset).
+  await ordersService.settleInvoicePaid(invoice);
 
   res.status(201).json({ payment, invoice, change: result.change || 0 });
 });

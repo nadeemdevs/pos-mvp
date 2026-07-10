@@ -16,6 +16,10 @@ const paymentsRoutes = require('./modules/payments/payments.routes');
 const reportsRoutes = require('./modules/reports/reports.routes');
 const settingsRoutes = require('./modules/settings/settings.routes');
 const customersRoutes = require('./modules/customers/customers.routes');
+const tablesRoutes = require('./modules/tables/tables.routes');
+const ordersRoutes = require('./modules/orders/orders.routes');
+const kotsRoutes = require('./modules/kots/kots.routes');
+const printingRoutes = require('./modules/printing/printing.routes');
 
 const app = express();
 
@@ -55,6 +59,10 @@ app.use('/api/payments', paymentsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/customers', customersRoutes);
+app.use('/api/tables', tablesRoutes);
+app.use('/api/orders', ordersRoutes);
+app.use('/api/kots', kotsRoutes);
+app.use('/api/print', printingRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

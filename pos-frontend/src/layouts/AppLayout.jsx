@@ -7,6 +7,8 @@ import Toaster from '../components/Toaster'
 const NAV_LINKS = [
   { to: '/', label: 'Dashboard', permission: null },
   { to: '/billing', label: 'Billing', permission: 'billing.create' },
+  { to: '/tables', label: 'Tables', permissions: ['orders.take', 'tables.manage'], dineIn: true },
+  { to: '/kitchen', label: 'Kitchen', permission: 'kitchen.view', dineIn: true },
   { to: '/customers', label: 'Customers', permission: 'customers.manage' },
   { to: '/menu', label: 'Menu', permission: 'menu.manage' },
   { to: '/categories', label: 'Categories', permission: 'menu.manage' },
@@ -27,9 +29,13 @@ export default function AppLayout() {
     staleTime: 5 * 60 * 1000,
   })
 
-  const visibleLinks = NAV_LINKS.filter(
-    (link) => !link.permission || hasPermission(link.permission),
-  )
+  const dineInEnabled = !!settings?.features?.dineIn
+
+  const visibleLinks = NAV_LINKS.filter((link) => {
+    if (link.dineIn && !dineInEnabled) return false
+    if (link.permissions) return link.permissions.some((p) => hasPermission(p))
+    return !link.permission || hasPermission(link.permission)
+  })
 
   return (
     <div className="app-shell">

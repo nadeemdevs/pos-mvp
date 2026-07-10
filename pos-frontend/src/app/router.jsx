@@ -1,9 +1,12 @@
 import { createBrowserRouter } from 'react-router-dom'
 import ProtectedRoute from '../components/ProtectedRoute'
+import DashboardRedirect from '../components/DashboardRedirect'
 import AppLayout from '../layouts/AppLayout'
 import LoginPage from '../pages/LoginPage'
-import DashboardPage from '../pages/DashboardPage'
 import BillingPage from '../pages/BillingPage'
+import TablesPage from '../pages/TablesPage'
+import OrderPage from '../pages/OrderPage'
+import KitchenPage from '../pages/KitchenPage'
 import CustomersPage from '../pages/CustomersPage'
 import MenuPage from '../pages/MenuPage'
 import CategoriesPage from '../pages/CategoriesPage'
@@ -23,10 +26,22 @@ export const router = createBrowserRouter([
       {
         element: <AppLayout />,
         children: [
-          { path: '/', element: <DashboardPage /> },
+          { path: '/', element: <DashboardRedirect /> },
           {
             element: <ProtectedRoute permission="billing.create" />,
             children: [{ path: '/billing', element: <BillingPage /> }],
+          },
+          {
+            element: <ProtectedRoute anyPermission={['orders.take', 'tables.manage']} requireDineIn />,
+            children: [{ path: '/tables', element: <TablesPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="orders.take" requireDineIn />,
+            children: [{ path: '/orders/:id', element: <OrderPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="kitchen.view" requireDineIn />,
+            children: [{ path: '/kitchen', element: <KitchenPage /> }],
           },
           {
             element: <ProtectedRoute permission="customers.manage" />,

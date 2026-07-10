@@ -17,7 +17,16 @@ const ALL_PERMISSIONS = [
   'roles.manage',
   'settings.manage',
   'payments.take',
+  'tables.manage',
+  'orders.take',
+  'kitchen.view',
 ]
+
+const PERMISSION_LABELS = {
+  'tables.manage': 'Manage Tables (create/edit tables, zones)',
+  'orders.take': 'Take Orders (waiter — dine-in ordering)',
+  'kitchen.view': 'Kitchen Display (view/update KOTs)',
+}
 
 const emptyForm = { name: '', permissions: [] }
 
@@ -183,7 +192,7 @@ export default function RolesPage() {
                   checked={form.permissions.includes(perm)}
                   onChange={() => togglePermission(perm)}
                 />
-                <span>{perm}</span>
+                <span>{PERMISSION_LABELS[perm] || perm}</span>
               </label>
             ))}
           </div>

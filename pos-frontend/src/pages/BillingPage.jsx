@@ -1,7 +1,5 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getCategories } from '../services/categoryService'
-import { getMenuItems } from '../services/menuService'
 import { createInvoice, updateInvoice } from '../services/invoiceService'
 import { getCustomers } from '../services/customerService'
 import { takePayment } from '../services/paymentService'
@@ -11,10 +9,13 @@ import { toast } from '../store/toastStore'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { computeRoundOff, formatCurrency } from '../utils/format'
 import HeldBillsModal from '../components/HeldBillsModal'
+import DineInBillsModal from '../components/DineInBillsModal'
+import SplitBillModal from '../components/SplitBillModal'
 import PaymentModal from '../components/PaymentModal'
 import Receipt from '../components/Receipt'
-import Spinner from '../components/Spinner'
+import MenuPicker from '../components/MenuPicker'
 import EmptyState from '../components/EmptyState'
+import { useAuthStore } from '../store/authStore'
 
 function CustomerLookup({ customer, onFieldChange, onSelect, onClear }) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -159,12 +160,14 @@ function DiscountEditor({ discountType, discountValue, presets, maxPercent, onSe
 
 export default function BillingPage() {
   const queryClient = useQueryClient()
-  const [categoryFilter, setCategoryFilter] = useState('')
-  const [search, setSearch] = useState('')
   const [heldModalOpen, setHeldModalOpen] = useState(false)
+  const [dineInModalOpen, setDineInModalOpen] = useState(false)
+  const [splitOrder, setSplitOrder] = useState(null)
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [activeInvoice, setActiveInvoice] = useState(null)
   const [paymentResult, setPaymentResult] = useState(null)
+
+  const hasPermission = useAuthStore((s) => s.hasPermission)
 
   const cart = useCartStore()
   const items = useCartStore((s) => s.items)
@@ -178,25 +181,7 @@ export default function BillingPage() {
   const currency = settings?.currency || 'INR'
   const maxPercent = settings?.discounts?.maxPercent
   const presets = settings?.discounts?.presets || []
-
-  const { data: categoriesData } = useQuery({
-    queryKey: ['categories'],
-    queryFn: getCategories,
-  })
-  const categories = Array.isArray(categoriesData)
-    ? categoriesData
-    : categoriesData?.items || []
-
-  const { data: menuData, isLoading: menuLoading } = useQuery({
-    queryKey: ['menu', 'billing', { category: categoryFilter, search }],
-    queryFn: () =>
-      getMenuItems({
-        active: true,
-        ...(categoryFilter ? { category: categoryFilter } : {}),
-        ...(search ? { search } : {}),
-      }),
-  })
-  const menuItems = Array.isArray(menuData) ? menuData : menuData?.items || []
+  const dineInEnabled = !!settings?.features?.dineIn && hasPermission('billing.create')
 
   const subtotal = cart.getSubtotal()
   const tax = cart.getTax()
@@ -328,65 +313,32 @@ export default function BillingPage() {
   return (
     <div className="billing-page">
       <div className="billing-left">
-        <div className="category-chips">
-          <button
-            className={`chip ${categoryFilter === '' ? 'active' : ''}`}
-            onClick={() => setCategoryFilter('')}
-          >
-            All
-          </button>
-          {categories.map((c) => (
-            <button
-              key={c._id || c.id}
-              className={`chip ${categoryFilter === (c._id || c.id) ? 'active' : ''}`}
-              onClick={() => setCategoryFilter(c._id || c.id)}
-            >
-              {c.name}
-            </button>
-          ))}
-        </div>
-
-        <input
-          className="billing-search"
-          autoFocus
-          placeholder="Search menu items…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+        <MenuPicker
+          currency={currency}
+          onItemClick={(item) =>
+            cart.add({
+              menuItemId: item._id || item.id,
+              name: item.name,
+              price: item.price,
+              taxRate: item.taxRate || 0,
+            })
+          }
         />
-
-        <div className="menu-grid">
-          {menuLoading ? (
-            <Spinner label="Loading menu…" />
-          ) : menuItems.length === 0 ? (
-            <EmptyState title="No items found" />
-          ) : (
-            menuItems.map((item) => (
-              <button
-                key={item._id || item.id}
-                className="menu-item-card"
-                onClick={() =>
-                  cart.add({
-                    menuItemId: item._id || item.id,
-                    name: item.name,
-                    price: item.price,
-                    taxRate: item.taxRate || 0,
-                  })
-                }
-              >
-                <span className="menu-item-name">{item.name}</span>
-                <span className="menu-item-price">{formatCurrency(item.price, currency)}</span>
-              </button>
-            ))
-          )}
-        </div>
       </div>
 
       <div className="billing-right">
         <div className="cart-header">
           <h2>Current Bill</h2>
-          <button className="btn btn-ghost btn-sm" onClick={() => setHeldModalOpen(true)}>
-            Held Bills
-          </button>
+          <div className="cart-header-actions">
+            {dineInEnabled && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setDineInModalOpen(true)}>
+                Dine-in Bills
+              </button>
+            )}
+            <button className="btn btn-ghost btn-sm" onClick={() => setHeldModalOpen(true)}>
+              Held Bills
+            </button>
+          </div>
         </div>
 
         <div className="cart-lines">
@@ -516,6 +468,26 @@ export default function BillingPage() {
         onConfirm={(data) => paymentMutation.mutate(data)}
         onCardSuccess={handleCardSuccess}
       />
+
+      {dineInEnabled && (
+        <>
+          <DineInBillsModal
+            open={dineInModalOpen}
+            onClose={() => setDineInModalOpen(false)}
+            onSelectOrder={(order) => {
+              setDineInModalOpen(false)
+              setSplitOrder(order)
+            }}
+          />
+          <SplitBillModal
+            open={!!splitOrder}
+            orderId={splitOrder?._id || splitOrder?.id}
+            currency={currency}
+            settings={settings}
+            onClose={() => setSplitOrder(null)}
+          />
+        </>
+      )}
     </div>
   )
 }

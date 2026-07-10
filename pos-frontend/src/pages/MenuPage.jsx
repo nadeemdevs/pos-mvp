@@ -21,6 +21,7 @@ const emptyForm = {
   price: '',
   taxRate: '',
   active: true,
+  modifiers: [],
 }
 
 export default function MenuPage() {
@@ -97,8 +98,24 @@ export default function MenuPage() {
       price: item.price ?? '',
       taxRate: item.taxRate ?? '',
       active: item.active ?? true,
+      modifiers: Array.isArray(item.modifiers) ? item.modifiers.map((m) => ({ ...m })) : [],
     })
     setModalOpen(true)
+  }
+
+  const addModifierRow = () => {
+    setForm((f) => ({ ...f, modifiers: [...f.modifiers, { name: '', price: 0 }] }))
+  }
+
+  const updateModifierRow = (idx, field, value) => {
+    setForm((f) => ({
+      ...f,
+      modifiers: f.modifiers.map((m, i) => (i === idx ? { ...m, [field]: value } : m)),
+    }))
+  }
+
+  const removeModifierRow = (idx) => {
+    setForm((f) => ({ ...f, modifiers: f.modifiers.filter((_, i) => i !== idx) }))
   }
 
   const closeModal = () => {
@@ -116,6 +133,9 @@ export default function MenuPage() {
       price: Number(form.price) || 0,
       taxRate: Number(form.taxRate) || 0,
       active: !!form.active,
+      modifiers: form.modifiers
+        .filter((m) => m.name.trim())
+        .map((m) => ({ name: m.name.trim(), price: Number(m.price) || 0 })),
     }
     if (editing) {
       updateMutation.mutate({ id: editing._id || editing.id, data: payload })
@@ -179,6 +199,7 @@ export default function MenuPage() {
                 <th>SKU</th>
                 <th>Price</th>
                 <th>Tax %</th>
+                <th>Modifiers</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -191,6 +212,13 @@ export default function MenuPage() {
                   <td>{item.sku}</td>
                   <td>{formatCurrency(item.price)}</td>
                   <td>{item.taxRate ?? 0}%</td>
+                  <td>
+                    {Array.isArray(item.modifiers) && item.modifiers.length > 0 ? (
+                      <span className="badge badge-muted">{item.modifiers.length} modifiers</span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td>
                     <span className={`badge ${item.active ? 'badge-success' : 'badge-muted'}`}>
                       {item.active ? 'Active' : 'Inactive'}
@@ -275,6 +303,37 @@ export default function MenuPage() {
               />
             </label>
           </div>
+
+          <span className="field-label">Modifiers</span>
+          <div className="modifier-editor-rows">
+            {form.modifiers.map((m, idx) => (
+              <div className="modifier-editor-row" key={idx}>
+                <input
+                  placeholder="Name (e.g. Extra Cheese)"
+                  value={m.name}
+                  onChange={(e) => updateModifierRow(idx, 'name', e.target.value)}
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="Price"
+                  value={m.price}
+                  onChange={(e) => updateModifierRow(idx, 'price', Number(e.target.value) || 0)}
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm btn-danger-text"
+                  onClick={() => removeModifierRow(idx)}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="btn btn-ghost btn-sm modifier-add-btn" onClick={addModifierRow}>
+            + Add modifier
+          </button>
+
           <label className="checkbox-field">
             <input
               type="checkbox"

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getSettings, updateSettings } from '../services/settingsService'
+import { testPrint } from '../services/printService'
 import { toast } from '../store/toastStore'
 import Spinner from '../components/Spinner'
 
@@ -28,6 +29,9 @@ const emptyPaymentProviders = {
 
 const emptyDiscounts = { maxPercent: '', presets: [] }
 const emptyRounding = { enabled: false, nearest: 1 }
+const emptyFeatures = { dineIn: false }
+const emptyPrintTarget = { provider: 'BROWSER', host: '', port: '' }
+const emptyPrinting = { kot: { ...emptyPrintTarget }, receipt: { ...emptyPrintTarget } }
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
@@ -35,6 +39,9 @@ export default function SettingsPage() {
   const [paymentProviders, setPaymentProviders] = useState(emptyPaymentProviders)
   const [discounts, setDiscounts] = useState(emptyDiscounts)
   const [rounding, setRounding] = useState(emptyRounding)
+  const [features, setFeatures] = useState(emptyFeatures)
+  const [printing, setPrinting] = useState(emptyPrinting)
+  const [browserTestPayload, setBrowserTestPayload] = useState(null)
 
   const { data, isLoading } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
 
@@ -64,8 +71,23 @@ export default function SettingsPage() {
         enabled: data.rounding?.enabled ?? false,
         nearest: data.rounding?.nearest ?? 1,
       })
+      // features / printing are new in Phase 4 — older settings documents
+      // simply won't have them yet.
+      setFeatures({
+        dineIn: data.features?.dineIn ?? false,
+      })
+      setPrinting({
+        kot: { ...emptyPrintTarget, ...data.printing?.kot },
+        receipt: { ...emptyPrintTarget, ...data.printing?.receipt },
+      })
     }
   }, [data])
+
+  useEffect(() => {
+    const clear = () => setBrowserTestPayload(null)
+    window.addEventListener('afterprint', clear)
+    return () => window.removeEventListener('afterprint', clear)
+  }, [])
 
   const mutation = useMutation({
     mutationFn: updateSettings,
@@ -114,6 +136,29 @@ export default function SettingsPage() {
     }))
   }
 
+  const updatePrintTarget = (section, field, value) => {
+    setPrinting((prev) => ({
+      ...prev,
+      [section]: { ...prev[section], [field]: value },
+    }))
+  }
+
+  const testPrintMutation = useMutation({
+    mutationFn: (target) => testPrint(target),
+    onSuccess: (result, target) => {
+      if (result?.printed) {
+        toast(`Test print sent (${target})`, 'success')
+      } else if (result?.payload) {
+        setBrowserTestPayload(result.payload)
+        toast(`Test ${target} ticket rendered — check the print preview`, 'info')
+        setTimeout(() => window.print(), 60)
+      } else {
+        toast(`Test print (${target}) requested`, 'success')
+      }
+    },
+    onError: (e) => toast(e.response?.data?.message || 'Test print failed', 'error'),
+  })
+
   const handleSubmit = (e) => {
     e.preventDefault()
     mutation.mutate({
@@ -139,6 +184,25 @@ export default function SettingsPage() {
         ...(data?.rounding || {}),
         enabled: rounding.enabled,
         nearest: Number(rounding.nearest) || 0,
+      },
+      features: {
+        ...(data?.features || {}),
+        dineIn: features.dineIn,
+      },
+      printing: {
+        ...(data?.printing || {}),
+        kot: {
+          ...(data?.printing?.kot || {}),
+          provider: printing.kot.provider,
+          host: printing.kot.host,
+          port: printing.kot.port ? Number(printing.kot.port) : undefined,
+        },
+        receipt: {
+          ...(data?.printing?.receipt || {}),
+          provider: printing.receipt.provider,
+          host: printing.receipt.host,
+          port: printing.receipt.port ? Number(printing.receipt.port) : undefined,
+        },
       },
     })
   }
@@ -418,12 +482,92 @@ export default function SettingsPage() {
           <p className="page-subtitle">Round totals to the nearest ₹1</p>
         </div>
 
+        <div className="card settings-form">
+          <h2>Features</h2>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={features.dineIn}
+              onChange={(e) => setFeatures({ ...features, dineIn: e.target.checked })}
+            />
+            <span>Enable Dine-in mode (tables, waiter ordering, kitchen display)</span>
+          </label>
+        </div>
+
+        <div className="card settings-form printing-card">
+          <h2>Printing</h2>
+          <p className="page-subtitle">
+            Network printing requires an ESC/POS printer reachable from the SERVER, not this
+            device.
+          </p>
+
+          {[
+            { key: 'kot', label: 'KOT Printer' },
+            { key: 'receipt', label: 'Receipt Printer' },
+          ].map(({ key, label }) => (
+            <div key={key} className="print-target-block">
+              <span className="field-label">{label}</span>
+              <div className="field-row">
+                <label className="field">
+                  <span>Provider</span>
+                  <select
+                    value={printing[key].provider}
+                    onChange={(e) => updatePrintTarget(key, 'provider', e.target.value)}
+                  >
+                    <option value="BROWSER">Browser</option>
+                    <option value="ESCPOS_NETWORK">Network ESC-POS</option>
+                  </select>
+                </label>
+                {printing[key].provider === 'ESCPOS_NETWORK' && (
+                  <>
+                    <label className="field">
+                      <span>Host</span>
+                      <input
+                        placeholder="192.168.1.50"
+                        value={printing[key].host}
+                        onChange={(e) => updatePrintTarget(key, 'host', e.target.value)}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Port</span>
+                      <input
+                        type="number"
+                        placeholder="9100"
+                        value={printing[key].port}
+                        onChange={(e) => updatePrintTarget(key, 'port', e.target.value)}
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={testPrintMutation.isPending}
+                onClick={() => testPrintMutation.mutate(key === 'kot' ? 'kot' : 'receipt')}
+              >
+                {testPrintMutation.isPending ? 'Testing…' : 'Test print'}
+              </button>
+            </div>
+          ))}
+        </div>
+
         <div className="modal-actions">
           <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
             {mutation.isPending ? 'Saving…' : 'Save Settings'}
           </button>
         </div>
       </form>
+
+      {browserTestPayload && (
+        <div className="printable-area">
+          <pre className="kot-print-raw">
+            {typeof browserTestPayload === 'string'
+              ? browserTestPayload
+              : JSON.stringify(browserTestPayload, null, 2)}
+          </pre>
+        </div>
+      )}
     </div>
   )
 }

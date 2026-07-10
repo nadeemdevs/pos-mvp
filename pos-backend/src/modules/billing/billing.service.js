@@ -94,9 +94,21 @@ function applyRounding(total, settings) {
   return { total: round2(total + roundOff), roundOff };
 }
 
-async function createInvoice(payload, user) {
-  const { items = [], customer, status = 'OPEN', note } = payload;
-
+// Shared by createInvoice (Mode 1, POST /api/invoice) and createFromOrder
+// (Mode 2, dine-in orders billing out via InvoiceService) — the single place
+// that actually persists an Invoice, so both paths get identical
+// subtotal/tax/discount/rounding computation.
+async function buildInvoice({
+  items,
+  customer,
+  status = 'OPEN',
+  note,
+  discountType = 'FLAT',
+  discountValue = 0,
+  user,
+  orderId,
+  orderNumber,
+}) {
   if (!items.length) {
     const err = new Error('Invoice must have at least one item');
     err.status = 400;
@@ -107,7 +119,6 @@ async function createInvoice(payload, user) {
   const { subtotal, tax } = computeItemTotals(items);
   const grossTotal = round2(subtotal + tax);
 
-  const { discountType, discountValue } = resolveDiscountInput(payload);
   const discount = computeDiscountAmount(subtotal, tax, discountType, discountValue);
 
   validateDiscount(discount, grossTotal, settings, user);
@@ -138,9 +149,60 @@ async function createInvoice(payload, user) {
     status,
     paymentStatus: 'PENDING',
     cashier: { id: user.id, name: user.name },
+    orderId,
+    orderNumber,
   });
 
   return invoice;
+}
+
+async function createInvoice(payload, user) {
+  const { items = [], customer, status = 'OPEN', note } = payload;
+  const { discountType, discountValue } = resolveDiscountInput(payload);
+
+  return buildInvoice({ items, customer, status, note, discountType, discountValue, user });
+}
+
+// Maps embedded Order.items (menuItemId/price/qty/taxRate/modifiers) into
+// invoice-item shape. Modifiers are folded into the price and named inline
+// ('Veg Thali + Extra Ghee') since Invoice.items has no modifiers field of
+// its own. Items that are already flat (e.g. the synthetic EQUAL-split share
+// lines from orders/split.js, which have no `modifiers`) pass through
+// untouched aside from rounding.
+function mapOrderItemsToInvoiceItems(items) {
+  return items.map((item) => {
+    const modifiers = item.modifiers || [];
+    const modifierTotal = modifiers.reduce((sum, m) => sum + (m.price || 0), 0);
+    const name = modifiers.length ? `${item.name} + ${modifiers.map((m) => m.name).join(' + ')}` : item.name;
+
+    return {
+      menuItemId: item.menuItemId,
+      name,
+      price: round2(item.price + modifierTotal),
+      qty: item.qty,
+      taxRate: item.taxRate || 0,
+    };
+  });
+}
+
+// InvoiceService.createFromOrder — the ONLY way Mode 2 (dine-in) invoices get
+// created. Reuses buildInvoice so order-billed invoices go through the exact
+// same computation path as Mode 1 invoices. `subsetItems` is either a subset
+// of order.items (FULL/ITEMS split modes) or synthetic share line(s) from
+// orders/split.js splitEqually (EQUAL mode).
+async function createFromOrder(order, subsetItems, { label, cashier } = {}) {
+  const items = mapOrderItemsToInvoiceItems(subsetItems);
+
+  return buildInvoice({
+    items,
+    note: label,
+    status: 'OPEN',
+    discountType: 'FLAT',
+    discountValue: 0,
+    user: cashier,
+    orderId: order._id,
+    orderNumber: order.orderNumber,
+  });
 }
 
 async function listInvoices(query) {
@@ -256,6 +318,7 @@ async function updateInvoice(id, payload, user) {
 module.exports = {
   computeItemTotals,
   createInvoice,
+  createFromOrder,
   listInvoices,
   getInvoice,
   updateInvoice,

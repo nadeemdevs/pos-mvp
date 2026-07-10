@@ -20,18 +20,16 @@ const getOne = asyncHandler(async (req, res) => {
 });
 
 const create = asyncHandler(async (req, res) => {
-  const { categoryId, name, sku, price, taxRate, active } = req.body;
-  const item = await MenuItem.create({ categoryId, name, sku, price, taxRate, active });
+  const { categoryId, name, sku, price, taxRate, active, modifiers } = req.body;
+  const item = await MenuItem.create({ categoryId, name, sku, price, taxRate, active, modifiers });
   res.status(201).json(item);
 });
 
 const update = asyncHandler(async (req, res) => {
-  const { categoryId, name, sku, price, taxRate, active } = req.body;
-  const item = await MenuItem.findByIdAndUpdate(
-    req.params.id,
-    { categoryId, name, sku, price, taxRate, active },
-    { new: true, runValidators: true }
-  );
+  const { categoryId, name, sku, price, taxRate, active, modifiers } = req.body;
+  const update = { categoryId, name, sku, price, taxRate, active };
+  if (modifiers !== undefined) update.modifiers = modifiers;
+  const item = await MenuItem.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
   if (!item) return res.status(404).json({ message: 'Menu item not found' });
   res.json(item);
 });

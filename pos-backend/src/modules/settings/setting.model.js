@@ -51,6 +51,32 @@ const roundingSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const printerTargetSchema = new mongoose.Schema(
+  {
+    provider: { type: String, enum: ['BROWSER', 'ESCPOS_NETWORK'], default: 'BROWSER' },
+    host: { type: String, default: '' },
+    port: { type: Number, default: 9100 },
+  },
+  { _id: false }
+);
+
+const printingSchema = new mongoose.Schema(
+  {
+    kot: { type: printerTargetSchema, default: () => ({}) },
+    receipt: { type: printerTargetSchema, default: () => ({}) },
+  },
+  { _id: false }
+);
+
+const featuresSchema = new mongoose.Schema(
+  {
+    // Gates the dine-in (Mode 2) UI. Backend APIs (tables/orders/kots) stay
+    // available regardless of this flag.
+    dineIn: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const settingSchema = new mongoose.Schema(
   {
     restaurantName: { type: String, default: 'My Restaurant' },
@@ -62,6 +88,8 @@ const settingSchema = new mongoose.Schema(
     paymentProviders: { type: paymentProvidersSchema, default: () => ({}) },
     discounts: { type: discountsSchema, default: () => ({}) },
     rounding: { type: roundingSchema, default: () => ({}) },
+    printing: { type: printingSchema, default: () => ({}) },
+    features: { type: featuresSchema, default: () => ({}) },
   },
   { timestamps: true }
 );

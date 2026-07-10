@@ -19,11 +19,18 @@ const ALL_PERMISSIONS = [
   'settings.manage',
   'payments.take',
   'customers.manage',
+  'tables.manage',
+  'orders.take',
+  'kitchen.view',
 ];
 
 const MANAGER_PERMISSIONS = ALL_PERMISSIONS.filter((p) => p !== 'roles.manage');
 
-const CASHIER_PERMISSIONS = ['billing.create', 'billing.view', 'payments.take'];
+const CASHIER_PERMISSIONS = ['billing.create', 'billing.view', 'payments.take', 'orders.take'];
+
+const WAITER_PERMISSIONS = ['orders.take'];
+
+const KITCHEN_PERMISSIONS = ['kitchen.view'];
 
 const CATEGORIES = [
   {
@@ -72,6 +79,8 @@ async function seedRoles() {
     { name: 'Admin', permissions: ALL_PERMISSIONS },
     { name: 'Manager', permissions: MANAGER_PERMISSIONS },
     { name: 'Cashier', permissions: CASHIER_PERMISSIONS },
+    { name: 'Waiter', permissions: WAITER_PERMISSIONS },
+    { name: 'Kitchen', permissions: KITCHEN_PERMISSIONS },
   ];
 
   const roles = {};
