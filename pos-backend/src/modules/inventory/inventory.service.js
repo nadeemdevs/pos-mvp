@@ -113,14 +113,24 @@ async function applyStockChange({ itemId, type, qty, unitCost, refType, refId, n
 
   const update = { $inc: { currentStock: qty } };
 
-  if (type === 'PURCHASE' && unitCost !== undefined && unitCost !== null) {
+  // Positive adjustments with a cost (e.g. opening stock) fold into the
+  // weighted average the same way purchases do.
+  const affectsCost = type === 'PURCHASE' || (type === 'ADJUSTMENT' && qty > 0);
+  if (affectsCost && unitCost !== undefined && unitCost !== null) {
     const baseStock = Math.max(oldStock, 0);
     const newTotalQty = baseStock + qty;
     const newAvg = newTotalQty > 0 ? round2((baseStock * oldAvg + qty * unitCost) / newTotalQty) : oldAvg;
     update.$set = { avgCost: newAvg };
   }
 
-  const updated = await InventoryItem.findByIdAndUpdate(itemId, update, { new: true });
+  let updated = await InventoryItem.findByIdAndUpdate(itemId, update, { new: true });
+
+  // $inc accumulates binary float error (9.96 - 6 → 3.960000000000001);
+  // normalize to 4dp after every change so stored stock stays clean.
+  const normalized = Math.round(updated.currentStock * 10000) / 10000;
+  if (normalized !== updated.currentStock) {
+    updated = await InventoryItem.findByIdAndUpdate(itemId, { $set: { currentStock: normalized } }, { new: true });
+  }
 
   const transaction = await StockTransaction.create({
     inventoryItemId: itemId,
@@ -156,13 +166,13 @@ async function applyStockChange({ itemId, type, qty, unitCost, refType, refId, n
 }
 
 async function adjustStock(itemId, payload, user) {
-  const { qty, type, note } = payload;
+  const { qty, type, note, unitCost } = payload;
   if (typeof qty !== 'number' || qty === 0) throw badRequest('qty must be a non-zero number');
   if (!['ADJUSTMENT', 'WASTAGE'].includes(type)) {
     throw badRequest("type must be 'ADJUSTMENT' or 'WASTAGE'");
   }
 
-  return applyStockChange({ itemId, type, qty, refType: 'MANUAL', refId: itemId, note, user });
+  return applyStockChange({ itemId, type, qty, unitCost, refType: 'MANUAL', refId: itemId, note, user });
 }
 
 async function getLedger(itemId, query) {

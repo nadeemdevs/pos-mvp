@@ -190,7 +190,7 @@ export default function InventoryPage() {
 
   const magnitude = Math.abs(Number(adjustForm.qty)) || 0
   const signedQty = adjustForm.sign === '-' ? -magnitude : magnitude
-  const previewStock = (adjustTarget?.currentStock ?? 0) + signedQty
+  const previewStock = Math.round(((adjustTarget?.currentStock ?? 0) + signedQty) * 10000) / 10000
 
   const handleAdjustSubmit = (e) => {
     e.preventDefault()

@@ -22,6 +22,16 @@ function tenantPlugin(schema) {
   });
 }
 
-mongoose.plugin(tenantPlugin);
+// A global mongoose.plugin() would also hit embedded subdocument schemas
+// (order items, settings.features, ...), stamping tenant fields into every
+// nested object. Instead, hook model compilation so only top-level
+// collection schemas get the fields.
+const originalModel = mongoose.model.bind(mongoose);
+mongoose.model = function (name, schema, ...rest) {
+  if (schema instanceof mongoose.Schema) {
+    tenantPlugin(schema);
+  }
+  return originalModel(name, schema, ...rest);
+};
 
 module.exports = tenantPlugin;
