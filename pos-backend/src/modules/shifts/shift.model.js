@@ -35,7 +35,7 @@ const shiftSchema = new mongoose.Schema(
     movements: { type: [movementSchema], default: [] },
     note: { type: String, default: '' },
   },
-  { timestamps: true }
+  { timestamps: true, branchScoped: true }
 );
 
 module.exports = mongoose.model('Shift', shiftSchema);

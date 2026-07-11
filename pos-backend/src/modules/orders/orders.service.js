@@ -162,6 +162,40 @@ function resolveModifiers(menuItem, requestedModifiers = []) {
   });
 }
 
+// Resolves a single requested {menuItemId, qty, modifiers, note} line against
+// the live menu — the ONE place order-item pricing happens, reused by the
+// staff POS flow (addItems below) and the guest-facing QR/online/delivery
+// order paths (public.service.js, delivery.service.js) so prices/modifiers
+// are always server-derived, never trusted from a request body.
+async function priceRequestedItem(requested) {
+  const menuItem = await MenuItem.findById(requested.menuItemId);
+  if (!menuItem || !menuItem.active) {
+    throw badRequest(`Menu item ${requested.menuItemId} not found or inactive`);
+  }
+
+  const modifiers = resolveModifiers(menuItem, requested.modifiers || []);
+
+  return {
+    menuItemId: menuItem._id,
+    name: menuItem.name,
+    price: menuItem.price,
+    taxRate: menuItem.taxRate || 0,
+    qty: requested.qty || 1,
+    modifiers,
+    note: requested.note || '',
+    kotId: null,
+  };
+}
+
+async function priceRequestedItems(items = []) {
+  const lines = [];
+  for (const requested of items) {
+    // eslint-disable-next-line no-await-in-loop
+    lines.push(await priceRequestedItem(requested));
+  }
+  return lines;
+}
+
 async function addItems(orderId, payload, user) {
   const order = await Order.findById(orderId);
   if (!order) throw notFound('Order not found');
@@ -171,37 +205,22 @@ async function addItems(orderId, payload, user) {
   if (!items.length) throw badRequest('items must be a non-empty array');
 
   for (const requested of items) {
-    const menuItem = await MenuItem.findById(requested.menuItemId);
-    if (!menuItem || !menuItem.active) {
-      throw badRequest(`Menu item ${requested.menuItemId} not found or inactive`);
-    }
-
-    const modifiers = resolveModifiers(menuItem, requested.modifiers || []);
-    const note = requested.note || '';
+    const line = await priceRequestedItem(requested);
 
     // Merge plain repeats into the existing unfired line — otherwise two rapid
     // taps on a menu tile race each other into duplicate one-qty lines.
     const mergeable =
-      !modifiers.length &&
-      !note &&
+      !line.modifiers.length &&
+      !line.note &&
       order.items.find(
         (i) =>
-          !i.kotId && String(i.menuItemId) === String(menuItem._id) && !i.modifiers.length && !i.note
+          !i.kotId && String(i.menuItemId) === String(line.menuItemId) && !i.modifiers.length && !i.note
       );
 
     if (mergeable) {
-      mergeable.qty += requested.qty || 1;
+      mergeable.qty += line.qty;
     } else {
-      order.items.push({
-        menuItemId: menuItem._id,
-        name: menuItem.name,
-        price: menuItem.price,
-        taxRate: menuItem.taxRate || 0,
-        qty: requested.qty || 1,
-        modifiers,
-        note,
-        kotId: null,
-      });
+      order.items.push(line);
     }
   }
 
@@ -454,6 +473,7 @@ async function settleInvoicePaid(invoice) {
 
 module.exports = {
   computeOrderTotals,
+  applyTotals,
   createOrder,
   listOrders,
   getOrder,
@@ -467,4 +487,8 @@ module.exports = {
   settleInvoicePaid,
   orderSummary,
   tableSummary,
+  priceRequestedItem,
+  priceRequestedItems,
+  notFound,
+  badRequest,
 };

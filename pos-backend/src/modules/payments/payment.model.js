@@ -34,7 +34,7 @@ const paymentSchema = new mongoose.Schema(
       name: { type: String },
     },
   },
-  { timestamps: true }
+  { timestamps: true, branchScoped: true }
 );
 
 paymentSchema.index({ invoiceId: 1, status: 1 });

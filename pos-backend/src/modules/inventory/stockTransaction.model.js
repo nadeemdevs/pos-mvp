@@ -20,7 +20,7 @@ const stockTransactionSchema = new mongoose.Schema(
       name: { type: String },
     },
   },
-  { timestamps: true }
+  { timestamps: true, branchScoped: true }
 );
 
 module.exports = mongoose.model('StockTransaction', stockTransactionSchema);

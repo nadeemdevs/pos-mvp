@@ -14,3 +14,6 @@ export const transferTable = (id, toTableId) =>
 
 export const mergeTable = (id, fromTableId) =>
   api.post(`/tables/${id}/merge`, { fromTableId }).then((r) => r.data)
+
+export const regenerateTableQrToken = (id) =>
+  api.post(`/tables/${id}/qr-token`).then((r) => r.data)

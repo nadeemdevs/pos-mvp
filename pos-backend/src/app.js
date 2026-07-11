@@ -36,6 +36,9 @@ const loyaltyRoutes = require('./modules/loyalty/loyalty.routes');
 const reservationsRoutes = require('./modules/reservations/reservations.routes');
 const shiftsRoutes = require('./modules/shifts/shifts.routes');
 const approvalsRoutes = require('./modules/approvals/approvals.routes');
+const publicRoutes = require('./modules/public/public.routes');
+const deliveryRoutes = require('./modules/delivery/delivery.routes');
+const analyticsRoutes = require('./modules/analytics/analytics.routes');
 
 const app = express();
 
@@ -96,6 +99,13 @@ app.use('/api/loyalty', loyaltyRoutes);
 app.use('/api/reservations', reservationsRoutes);
 app.use('/api/shifts', shiftsRoutes);
 app.use('/api/approvals', approvalsRoutes);
+// Phase 5.3 — no requireAuth on these two: /api/public/* is the guest-facing
+// QR/online-ordering surface (own rate limiter + settings.features.onlineOrdering
+// gate, see public.routes.js); /api/delivery/webhook/:partner is a vendor
+// webhook authenticated via HMAC signature instead of a JWT.
+app.use('/api/public', publicRoutes);
+app.use('/api/delivery', deliveryRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

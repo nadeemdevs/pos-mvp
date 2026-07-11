@@ -34,6 +34,8 @@ const ALL_PERMISSIONS = [
   'loyalty.manage',
   'reservations.manage',
   'shifts.manage',
+  // Phase 5.3 permissions.
+  'analytics.view',
 ];
 
 // Manager keeps everything it had before (all except roles.manage), plus

@@ -31,4 +31,9 @@ const merge = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
-module.exports = { list, create, update, remove, transfer, merge };
+const generateQrToken = asyncHandler(async (req, res) => {
+  const table = await service.generateQrToken(req.params.id);
+  res.json({ qrToken: table.qrToken, table });
+});
+
+module.exports = { list, create, update, remove, transfer, merge, generateQrToken };

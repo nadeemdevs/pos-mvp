@@ -95,6 +95,28 @@ function mergeFeatures(current, incoming) {
   if (incoming.analytics !== undefined) merged.analytics = incoming.analytics;
   if (incoming.reservations !== undefined) merged.reservations = incoming.reservations;
   if (incoming.shifts !== undefined) merged.shifts = incoming.shifts;
+  if (incoming.onlineOrdering !== undefined) merged.onlineOrdering = incoming.onlineOrdering;
+
+  return merged;
+}
+
+// Same shallow-merge idea, one level deeper: delivery.{zomato,swiggy} are each
+// sub-objects of their own, so a PUT touching only delivery.zomato.secret must
+// not wipe delivery.zomato.enabled or delivery.swiggy entirely.
+function mergeDeliveryPartner(current, incoming) {
+  const currentObj = current && current.toObject ? current.toObject() : current || {};
+  return { ...currentObj, ...incoming };
+}
+
+function mergeDelivery(current, incoming) {
+  const currentObj = current && current.toObject ? current.toObject() : current || {};
+  const merged = { ...currentObj };
+
+  for (const key of ['zomato', 'swiggy']) {
+    if (incoming[key]) {
+      merged[key] = mergeDeliveryPartner(currentObj[key], incoming[key]);
+    }
+  }
 
   return merged;
 }
@@ -141,6 +163,7 @@ const updateSettings = asyncHandler(async (req, res) => {
     features,
     loyalty,
     approvals,
+    delivery,
   } = req.body;
 
   let settings = await Setting.findOne();
@@ -181,6 +204,10 @@ const updateSettings = asyncHandler(async (req, res) => {
 
   if (approvals) {
     settings.approvals = mergeApprovals(settings.approvals, approvals);
+  }
+
+  if (delivery) {
+    settings.delivery = mergeDelivery(settings.delivery, delivery);
   }
 
   await settings.save();

@@ -10,12 +10,14 @@ import {
   updateTable,
 } from '../services/tableService'
 import { createOrder } from '../services/orderService'
+import { getSettings } from '../services/settingsService'
 import { useAuthStore } from '../store/authStore'
 import { useSocketEvents } from '../hooks/useSocketEvents'
 import { toast } from '../store/toastStore'
 import { formatCurrency } from '../utils/format'
 import Modal from '../components/Modal'
 import ConfirmDialog from '../components/ConfirmDialog'
+import QRModal from '../components/QRModal'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
 
@@ -187,12 +189,13 @@ function TransferMergeModal({ mode, table, tables, onClose, onConfirm, isSubmitt
 
 const emptyTableForm = { name: '', zone: '', capacity: 4 }
 
-function ManageTablesModal({ open, onClose, tables }) {
+function ManageTablesModal({ open, onClose, tables, showQr }) {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(emptyTableForm)
   const [showForm, setShowForm] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [qrTarget, setQrTarget] = useState(null)
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['tables'] })
 
@@ -282,6 +285,11 @@ function ManageTablesModal({ open, onClose, tables }) {
                     <td>{t.zone || '—'}</td>
                     <td>{t.capacity}</td>
                     <td className="table-actions">
+                      {showQr && (
+                        <button className="btn btn-ghost btn-sm" onClick={() => setQrTarget(t)}>
+                          QR
+                        </button>
+                      )}
                       <button className="btn btn-ghost btn-sm" onClick={() => openEdit(t)}>
                         Edit
                       </button>
@@ -351,6 +359,8 @@ function ManageTablesModal({ open, onClose, tables }) {
         onCancel={() => setDeleteTarget(null)}
         onConfirm={() => deleteMutation.mutate(deleteTarget._id || deleteTarget.id)}
       />
+
+      {showQr && <QRModal table={qrTarget} onClose={() => setQrTarget(null)} />}
     </Modal>
   )
 }
@@ -360,6 +370,9 @@ export default function TablesPage() {
   const queryClient = useQueryClient()
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canManageTables = hasPermission('tables.manage')
+
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
+  const showQr = canManageTables && !!settings?.features?.onlineOrdering
 
   const [seatTarget, setSeatTarget] = useState(null)
   const [actionMode, setActionMode] = useState(null) // 'transfer' | 'merge' | null
@@ -499,7 +512,12 @@ export default function TablesPage() {
       />
 
       {canManageTables && (
-        <ManageTablesModal open={manageOpen} onClose={() => setManageOpen(false)} tables={tables} />
+        <ManageTablesModal
+          open={manageOpen}
+          onClose={() => setManageOpen(false)}
+          tables={tables}
+          showQr={showQr}
+        />
       )}
     </div>
   )

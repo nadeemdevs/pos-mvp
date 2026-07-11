@@ -42,10 +42,15 @@ const emptyFeatures = {
   analytics: false,
   reservations: false,
   shifts: false,
+  onlineOrdering: false,
 }
 const emptyPrintTarget = { provider: 'BROWSER', host: '', port: '' }
 const emptyPrinting = { kot: { ...emptyPrintTarget }, receipt: { ...emptyPrintTarget } }
 const emptyLoyalty = { pointsPer100: '', pointValue: '', referralBonus: '', tiers: [] }
+const emptyDelivery = {
+  zomato: { enabled: false, secret: '' },
+  swiggy: { enabled: false, secret: '' },
+}
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
@@ -56,6 +61,7 @@ export default function SettingsPage() {
   const [features, setFeatures] = useState(emptyFeatures)
   const [printing, setPrinting] = useState(emptyPrinting)
   const [loyalty, setLoyalty] = useState(emptyLoyalty)
+  const [delivery, setDelivery] = useState(emptyDelivery)
   const [browserTestPayload, setBrowserTestPayload] = useState(null)
   const [pin, setPin] = useState('')
   const [pinConfirm, setPinConfirm] = useState('')
@@ -99,6 +105,7 @@ export default function SettingsPage() {
         analytics: data.features?.analytics ?? false,
         reservations: data.features?.reservations ?? false,
         shifts: data.features?.shifts ?? false,
+        onlineOrdering: data.features?.onlineOrdering ?? false,
       })
       setPrinting({
         kot: { ...emptyPrintTarget, ...data.printing?.kot },
@@ -109,6 +116,11 @@ export default function SettingsPage() {
         pointValue: data.loyalty?.pointValue ?? '',
         referralBonus: data.loyalty?.referralBonus ?? '',
         tiers: data.loyalty?.tiers || [],
+      })
+      // settings.delivery is new in Phase 5.3 — older documents won't have it.
+      setDelivery({
+        zomato: { ...emptyDelivery.zomato, ...data.delivery?.zomato },
+        swiggy: { ...emptyDelivery.swiggy, ...data.delivery?.swiggy },
       })
     }
   }, [data])
@@ -206,6 +218,13 @@ export default function SettingsPage() {
     pinMutation.mutate()
   }
 
+  const updateDeliveryField = (partnerKey, field, value) => {
+    setDelivery((prev) => ({
+      ...prev,
+      [partnerKey]: { ...prev[partnerKey], [field]: value },
+    }))
+  }
+
   const updatePrintTarget = (section, field, value) => {
     setPrinting((prev) => ({
       ...prev,
@@ -286,6 +305,11 @@ export default function SettingsPage() {
           name: t.name,
           minPoints: Number(t.minPoints) || 0,
         })),
+      },
+      delivery: {
+        ...(data?.delivery || {}),
+        zomato: { ...(data?.delivery?.zomato || {}), ...delivery.zomato },
+        swiggy: { ...(data?.delivery?.swiggy || {}), ...delivery.swiggy },
       },
     })
   }
@@ -625,6 +649,23 @@ export default function SettingsPage() {
           </label>
         </div>
 
+        <div className="card settings-form">
+          <h2>Online Ordering</h2>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={features.onlineOrdering}
+              onChange={(e) => setFeatures({ ...features, onlineOrdering: e.target.checked })}
+            />
+            <span>Enable QR ordering</span>
+          </label>
+          <p className="page-subtitle">
+            Guests scan a table QR to order; items arrive as unfired lines for staff to fire.
+          </p>
+        </div>
+
+        <DeliveryPartnersCard delivery={delivery} onUpdate={updateDeliveryField} />
+
         {features.loyalty && (
           <div className="card settings-form">
             <h2>Loyalty</h2>
@@ -779,6 +820,65 @@ export default function SettingsPage() {
       />
 
       <BranchesCard />
+    </div>
+  )
+}
+
+const DELIVERY_PARTNERS = [
+  { key: 'zomato', label: 'Zomato' },
+  { key: 'swiggy', label: 'Swiggy' },
+]
+
+function DeliveryPartnersCard({ delivery, onUpdate }) {
+  const handleCopy = async (url) => {
+    try {
+      await navigator.clipboard.writeText(url)
+      toast('Webhook URL copied', 'success')
+    } catch {
+      toast('Could not copy URL', 'error')
+    }
+  }
+
+  return (
+    <div className="card settings-form">
+      <h2>Delivery Partners</h2>
+      <p className="page-subtitle">
+        Connect delivery aggregators — orders arrive automatically via their webhook.
+      </p>
+      {DELIVERY_PARTNERS.map(({ key, label }) => {
+        const webhookUrl = `${window.location.origin}/api/delivery/webhook/${key}`
+        return (
+          <div key={key} className="provider-config-body delivery-partner-row">
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={!!delivery[key]?.enabled}
+                onChange={(e) => onUpdate(key, 'enabled', e.target.checked)}
+              />
+              <span>{label}</span>
+            </label>
+            <div className="field-row">
+              <label className="field">
+                <span>Webhook Secret</span>
+                <input
+                  type="password"
+                  value={delivery[key]?.secret || ''}
+                  onChange={(e) => onUpdate(key, 'secret', e.target.value)}
+                />
+              </label>
+            </div>
+            <label className="field">
+              <span>Webhook URL</span>
+              <div className="webhook-url-row">
+                <input readOnly value={webhookUrl} />
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => handleCopy(webhookUrl)}>
+                  Copy
+                </button>
+              </div>
+            </label>
+          </div>
+        )
+      })}
     </div>
   )
 }

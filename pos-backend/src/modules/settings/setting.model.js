@@ -82,6 +82,31 @@ const featuresSchema = new mongoose.Schema(
     // Phase 5.2 feature gates.
     reservations: { type: Boolean, default: false },
     shifts: { type: Boolean, default: false },
+    // Phase 5.3 — gates the public QR/online-ordering API (/api/public/*).
+    // Off by default: when false every /api/public/* route responds 403
+    // ({message:'Online ordering is disabled'}) rather than 404, so a
+    // restaurant that hasn't printed QR codes yet doesn't leak menu data.
+    onlineOrdering: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const deliveryPartnerSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    // Shared-secret used to HMAC-SHA256-verify the partner's webhook
+    // signature (header `x-webhook-signature`). Kept readable via
+    // GET /api/settings (unlike approvals.pinHash) — an Admin configuring
+    // the integration needs to see/copy it, and it's not a login credential.
+    secret: { type: String, default: '' },
+  },
+  { _id: false }
+);
+
+const deliverySchema = new mongoose.Schema(
+  {
+    zomato: { type: deliveryPartnerSchema, default: () => ({}) },
+    swiggy: { type: deliveryPartnerSchema, default: () => ({}) },
   },
   { _id: false }
 );
@@ -136,6 +161,7 @@ const settingSchema = new mongoose.Schema(
     features: { type: featuresSchema, default: () => ({}) },
     loyalty: { type: loyaltySettingsSchema, default: () => ({}) },
     approvals: { type: approvalsSettingsSchema, default: () => ({}) },
+    delivery: { type: deliverySchema, default: () => ({}) },
   },
   { timestamps: true }
 );

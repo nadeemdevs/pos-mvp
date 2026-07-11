@@ -20,10 +20,25 @@ const orderItemSchema = new mongoose.Schema({
   kotId: { type: mongoose.Schema.Types.ObjectId, ref: 'Kot', default: null },
 });
 
+const orderSourceSchema = new mongoose.Schema(
+  {
+    partner: { type: String }, // e.g. 'zomato' | 'swiggy'
+    externalId: { type: String }, // the partner's own order id — idempotency key
+  },
+  { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
   {
     orderNumber: { type: String, required: true, unique: true },
     type: { type: String, enum: ['DINE_IN', 'TAKEAWAY'], default: 'DINE_IN' },
+    // Where the order originated. 'POS' (default) covers everything created
+    // by staff today; 'QR'/'ONLINE' are guest self-order channels (Phase 5.3
+    // public API); 'DELIVERY' is a partner webhook order.
+    channel: { type: String, enum: ['POS', 'QR', 'ONLINE', 'DELIVERY'], default: 'POS' },
+    // Set only for channel 'DELIVERY' — which partner and their own order id,
+    // used as the idempotency key for repeat webhook deliveries.
+    source: { type: orderSourceSchema },
     tableId: { type: mongoose.Schema.Types.ObjectId, ref: 'Table' },
     tableName: { type: String },
     guestCount: { type: Number, default: 1 },
@@ -31,6 +46,15 @@ const orderSchema = new mongoose.Schema(
       id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       name: { type: String },
     },
+    // Guest snapshot for QR/online/delivery orders — mirrors Invoice.customer.
+    customer: {
+      name: { type: String },
+      phone: { type: String },
+    },
+    customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
+    // Opaque token handed back to a QR/online guest so they can poll
+    // GET /api/public/orders/:id/status?token= without authenticating.
+    publicToken: { type: String, index: true, sparse: true },
     items: { type: [orderItemSchema], default: [] },
     status: {
       type: String,
@@ -49,7 +73,15 @@ const orderSchema = new mongoose.Schema(
     // duplicate 'order.completed' publish never double-deducts.
     stockDeducted: { type: Boolean, default: false },
   },
-  { timestamps: true }
+  { timestamps: true, branchScoped: true }
+);
+
+// Idempotency guard for the delivery-webhook module (Phase 5.3): a repeat
+// webhook for the same partner order must return the SAME order, never
+// create a duplicate. Sparse — only DELIVERY-channel orders set `source`.
+orderSchema.index(
+  { 'source.partner': 1, 'source.externalId': 1 },
+  { unique: true, sparse: true }
 );
 
 // No `next` callback param — Mongoose 9 treats a zero-arg pre-hook as

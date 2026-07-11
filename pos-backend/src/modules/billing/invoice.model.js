@@ -61,7 +61,7 @@ const invoiceSchema = new mongoose.Schema(
     loyaltyPoints: { type: Number, default: 0 },
     loyaltyDiscount: { type: Number, default: 0 },
   },
-  { timestamps: true }
+  { timestamps: true, branchScoped: true }
 );
 
 module.exports = mongoose.model('Invoice', invoiceSchema);

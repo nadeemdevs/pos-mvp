@@ -11,7 +11,7 @@ const inventoryItemSchema = new mongoose.Schema(
     avgCost: { type: Number, default: 0 },
     active: { type: Boolean, default: true },
   },
-  { timestamps: true }
+  { timestamps: true, branchScoped: true }
 );
 
 // One item per name, per tenant+branch — mirrors the tenant-scoping story

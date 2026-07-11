@@ -4,6 +4,7 @@ Restaurant POS backend supporting two modes. Express + MongoDB (Mongoose) + Sock
 - **Mode 1** — counter billing (`/api/invoice`, `/api/payments`), unchanged since the MVP.
 - **Mode 2** — dine-in table service (`/api/tables`, `/api/orders`, `/api/kots`, `/api/print`), added in Phase 4. Gated for UI purposes by `settings.features.dineIn` (the APIs themselves are always available).
 - **Phase 5.1 (ERP core)** — multi-tenant/branch scaffolding, an in-process event bus, an audit trail, and inventory/recipes/purchasing (`/api/branches`, `/api/audit`, `/api/inventory`, `/api/vendors`, `/api/purchase-orders`). See [Phase 5.1: ERP core](#phase-51-erp-core) below.
+- **Phase 5.3** — guest-facing QR/online ordering (`/api/public/*`), delivery-partner webhook stubs (`/api/delivery/webhook/:partner`), an analytics module (`/api/analytics/*`), and real branch-data isolation (previously the branch fields existed but weren't enforced in queries). See [Phase 5.3](#phase-53--qronline-ordering-delivery-webhooks-analytics-branch-hardening) below.
 
 ## Setup
 
@@ -118,12 +119,13 @@ NEW, PREPARING ──► CANCELLED
 ```
 
 ### Tables — `src/modules/tables/`
-- `GET /api/tables` (`orders.take` or `tables.manage` or `billing.create`) — sorted by `zone, name`; each occupied table includes `order: {_id, orderNumber, guestCount, status, itemCount, total}`.
+- `GET /api/tables` (`orders.take` or `tables.manage` or `billing.create`) — sorted by `zone, name`; each occupied table includes `order: {_id, orderNumber, guestCount, status, itemCount, total}`. Includes `qrToken` (see Phase 5.3 below) for any caller with read access — no separate gating.
 - `POST /api/tables` `{name, zone?, capacity?}` (`tables.manage`)
 - `PUT /api/tables/:id` (`tables.manage`) — `400` unless the table is `FREE`
 - `DELETE /api/tables/:id` (`tables.manage`) — `400` unless the table is `FREE`
 - `POST /api/tables/:id/transfer` `{toTableId}` (`tables.manage` or `orders.take`) — moves the current order to the target table; `400` if source is `FREE` or target isn't `FREE`. Emits `table.updated` ×2 + `order.updated`.
 - `POST /api/tables/:id/merge` `{fromTableId}` (`tables.manage` or `orders.take`) — appends `fromTableId`'s order items (fired and unfired) into `:id`'s order, recomputes totals, cancels the source order (`note: 'Merged into <destOrderNumber>'`), frees the source table. `400` unless both tables are `OCCUPIED` with `OPEN` orders. Any already-fired KOTs for the moved items are re-pointed (`orderId`/`orderNumber`/`tableId`/`tableName`) to the destination order/table, so a later cancel/KDS lookup on the destination order finds them. Emits `table.updated` ×2 + `order.updated` ×2.
+- `POST /api/tables/:id/qr-token` (`tables.manage`) — (re)generates the table's `qrToken` (`crypto.randomBytes(16).toString('hex')`), invalidating any previously-printed QR sticker. Returns `{qrToken, table}`.
 
 ### Orders — `src/modules/orders/`
 All require `orders.take` unless noted (Admin always bypasses).
@@ -261,7 +263,7 @@ On server boot, any payment left `INITIATED`/`PROCESSING` from a previous proces
 
 ## Permission strings
 
-`billing.create`, `billing.view`, `menu.manage`, `reports.view`, `users.manage`, `roles.manage`, `settings.manage`, `payments.take`, `customers.manage`, `tables.manage`, `orders.take`, `kitchen.view`, `inventory.manage`, `purchasing.manage`, `branches.manage`, `audit.view`.
+`billing.create`, `billing.view`, `menu.manage`, `reports.view`, `users.manage`, `roles.manage`, `settings.manage`, `payments.take`, `customers.manage`, `tables.manage`, `orders.take`, `kitchen.view`, `inventory.manage`, `purchasing.manage`, `branches.manage`, `audit.view`, `loyalty.manage`, `reservations.manage`, `shifts.manage`, `analytics.view`.
 
 `Admin` role bypasses permission checks entirely (and has every permission in the seed). `Manager` has all of the above **except** `roles.manage`, `branches.manage`, and `audit.view` — the audit trail and branch administration are Admin-only; Manager does get `inventory.manage` and `purchasing.manage`. `Cashier` has `billing.create`, `billing.view`, `payments.take`, `orders.take` — which is also enough to list/read/create customers (see Customers above), since cashiers look up and create customers mid-sale. `Waiter` has `orders.take` only (take orders, fire KOTs, request bills — no billing/settings access). `Kitchen` has `kitchen.view` only (KDS: list/advance KOTs, print tickets).
 
@@ -441,3 +443,82 @@ Settings gained `approvals {pinHash (bcrypt, never returned by GET), requireForD
 ### Flags, permissions
 
 `settings.features` gained `reservations`, `shifts` (both default `false`, same UI-gate-only pattern as `loyalty`/`inventory`/etc — backend APIs stay live regardless). New permissions: `loyalty.manage`, `reservations.manage`, `shifts.manage`. Seed: Admin and Manager get all three (Manager via the existing "everything except the excluded list" pattern — these three were simply not added to `MANAGER_ONLY_EXCLUDED`); Cashier `+= shifts.manage`; Waiter `+= reservations.manage`.
+
+## Phase 5.3 — QR/online ordering, delivery webhooks, analytics, branch hardening
+
+Everything here is additive; Mode 1/2 and Phase 5.1/5.2 behavior above is unchanged. This phase also turns the previously-cosmetic `tenantId`/`branchId` fields (Phase 5.1) into REAL data isolation for a set of core collections — see "Branch-scoping hardening" below.
+
+### QR / online ordering — `src/modules/public/`, `src/modules/tables/`
+
+Gated end-to-end by `settings.features.onlineOrdering` (default `false`) — every `/api/public/*` route responds `403 {message:'Online ordering is disabled'}` while it's off, so a restaurant that hasn't rolled out QR ordering yet never exposes menu data. All `/api/public/*` routes are also rate-limited to **60 requests/min/IP** (`express-rate-limit`, standard headers) ahead of the flag check, since this surface is reachable by anyone who scans a QR code.
+
+**Table QR tokens**: `Table.qrToken` (`String, unique, sparse`) is generated via `POST /api/tables/:id/qr-token` (`tables.manage`; `crypto.randomBytes(16).toString('hex')`) and printed onto a physical sticker. Regenerating invalidates the old code.
+
+Public endpoints (`src/modules/public/public.routes.js`, no auth):
+- `GET /api/public/menu` → `[{_id, name, sortOrder, items: [{_id, name, price, taxRate, modifiers, categoryId}]}]` — active menu items only, grouped under their category. **No recipe/cost data is ever included.** A category is considered "active" for this endpoint when it has at least one active menu item (`Category` itself has no `active` field of its own — it's shared across every other module, so this endpoint infers it rather than adding one).
+- `GET /api/public/table/:qrToken` → `{tableName, status}`, `404` for an unknown token.
+- `POST /api/public/orders` `{qrToken, customer: {name, phone}, items: [{menuItemId, qty, modifiers?: [{name}], note?}]}` — `customer.phone` is required. Every price/modifier is resolved server-side via the SAME helper the staff POS uses (`ordersService.priceRequestedItems` — a refactor of the logic `POST /api/orders/:id/items` already had, extracted so it isn't duplicated). The customer is upserted by phone (`customersService.upsertByPhone`, same helper invoices use) and linked onto the order (`order.customer`/`order.customerId`, new fields).
+  - Table `FREE` → creates a new `Order` (`channel: 'QR'`, `type: 'DINE_IN'`, `guestCount: 2`, `waiter: {name: 'QR Guest'}`), occupies the table. Audited as `public.order`.
+  - Table `OCCUPIED` with an `OPEN` order → appends the items as **unfired** lines onto that order (exactly like a staff `POST /api/orders/:id/items` call) — the QR channel never fires its own KOTs; staff still fire from the floor/KDS as normal. Also audited as `public.order` (`meta.appended: true`).
+  - Table `BILLED`, or `OCCUPIED` with no linked/`OPEN` order → `409 {message:'Table is billing — please ask staff'}`.
+  - Response: `{orderId, orderNumber, statusToken}` — `statusToken` is `order.publicToken` (a `crypto.randomBytes(20).toString('hex')` value, new field on `Order`), the guest's only credential for polling status.
+- `GET /api/public/orders/:id/status?token=` → validates `token` against `order.publicToken` (`401` on mismatch) → `{orderNumber, status, items: [{name, qty, kotStatus}], subtotal, tax, total}`. `kotStatus` is `'NEW'` for an unfired line, or the linked `Kot.status` otherwise.
+
+**New `Order` fields**: `channel: 'POS'|'QR'|'ONLINE'|'DELIVERY'` (default `'POS'`), `source: {partner, externalId}` (delivery only, see below), `customer: {name, phone}` / `customerId` (guest snapshot, mirrors `Invoice.customer`), `publicToken` (QR/online status-polling credential).
+
+### Delivery partner webhooks — `src/modules/delivery/`
+
+Provider pattern mirroring the payments module (`PaymentProvider`/`PaymentProviderFactory`): `DeliveryProvider` base class (`verifyWebhook(req, config)`, `mapOrder(payload)`), `ZomatoProvider`/`SwiggyProvider` subclasses, `DeliveryProviderFactory.get('zomato'|'swiggy')`.
+
+**Neither partner has a public integration spec** for this project, so both subclasses simply parameterize ONE generic, clearly-marked-placeholder implementation in `DeliveryProvider` (only the settings key they read — `zomato` vs `swiggy` — differs):
+- **Assumed webhook payload** (`src/modules/delivery/DeliveryProvider.js`): `{externalId, event?: 'cancelled', customer: {name, phone}, items: [{sku?, name, qty, note?}]}`.
+- **Assumed signature scheme**: header `x-webhook-signature` = `HMAC-SHA256(rawBody, settings.delivery.<partner>.secret)`, timing-safe compared. Uses the same `req.rawBody` capture (`app.js`'s `express.json({verify})`) that `WorldlineProvider` relies on.
+- **Item matching** (`src/modules/delivery/mapping.js`, unit-tested in `mapping.test.js` via the pure `mapOrderItemsPure`): sku first (exact), then name (case-insensitive exact) against the full active menu (one bulk `MenuItem.find({active:true})`, not a query per line). Unmatched items are collected and rejected as `400 {message:'Could not match menu items: <list>'}` — never silently dropped. Matched lines always take their `price`/`taxRate` from the matched `MenuItem`, never from the partner payload.
+
+`settings.delivery`: `{zomato: {enabled, secret}, swiggy: {enabled, secret}}` — `secret` is deliberately left **readable** via `GET /api/settings` (unlike `approvals.pinHash`): an Admin configuring the integration needs to see/copy it, and it isn't a login credential. Deep-merged via `PUT /api/settings` the same way `paymentProviders`/`printing` are.
+
+`POST /api/delivery/webhook/:partner` — **no auth** (HMAC-verified instead):
+1. Unknown `partner` → `400`. Partner not `enabled` → `403`. Bad/missing signature → `401`.
+2. `{event: 'cancelled', externalId}` → looks up the `Order` by `(source.partner, source.externalId)`, `404` if not found, else reuses the standard `ordersService.cancelOrder` (FSM-validated — an already-`INVOICED`+ order is rejected `400` exactly like a staff cancel would be). Audited as `delivery.cancel`.
+3. Otherwise → maps the payload via the provider, creates an `Order` (`channel: 'DELIVERY'`, `type: 'TAKEAWAY'`, `source: {partner, externalId}`, `waiter: {name: '<partner> webhook'}`, server-priced items). **Idempotent** on `(source.partner, source.externalId)` (unique sparse index on `Order`): a lookup-before-create handles the common case, and a duplicate-key catch on the create itself handles the race where two deliveries of the same webhook land near-simultaneously — either way, a repeat webhook returns the SAME order with `200` (vs `201` for a genuinely new one) rather than creating a duplicate. Audited as `delivery.order`.
+
+From here a delivery order behaves like any other `TAKEAWAY` order — staff fire its KOT and bill/pay it through the normal `/api/orders/:id/kot` → `/api/orders/:id/bill` → `/api/payments/*` flow.
+
+### Analytics — `src/modules/analytics/`
+
+`analytics.view` permission (seed: Admin, Manager). All endpoints accept `?from=&to=` (both default to today, same `localDay` local-timezone day-boundary convention as `reports.controller`) and consider **`paymentStatus: 'PAID'` invoices only, `status: 'CANCELLED'` excluded** — except `inventory-value`, which isn't invoice-based.
+
+- `GET /api/analytics/overview` → `{revenue, invoiceCount, avgTicket, foodCost, grossProfit, foodCostPct}`.
+- `GET /api/analytics/peak-hours` → `[{hour, revenue, count}]`, bucketed by the LOCAL hour (`new Date(invoice.createdAt).getHours()`) of each invoice, only hours with ≥1 invoice, ascending.
+- `GET /api/analytics/items` → `[{name, qty, revenue, foodCost, margin, marginPct}]` per menu item sold, sorted by `revenue` desc — recipe profitability.
+- `GET /api/analytics/channels` → `[{channel, revenue, count}]` — invoices grouped by their **order's** `channel` (`'POS'` for invoices with no `orderId`, i.e. Mode 1 counter sales); implemented as one invoice query + one batch `Order.find({_id:{$in:...}}).select('channel')` joined in JS, rather than a `$lookup` aggregation (simpler at this data volume, same result).
+- `GET /api/analytics/inventory-value` → `{items: [{name, currentStock, avgCost, value}], totalValue}` — active inventory items, `value = currentStock × avgCost`.
+- `GET /api/analytics/branches` → `[{branchId, revenue, count}]` — PAID invoices across **every** branch, grouped by `branchId`. Deliberately bypasses the branch-scoping hooks below (`.setOptions({skipBranchScope: true})`) since this endpoint's entire purpose is comparing branches against each other — it would be useless if silently narrowed to the caller's own branch.
+
+**foodCost math** (`src/modules/analytics/analytics.service.js`, `foodCostForLine` — pure, unit-tested in `analytics.service.test.js`): for each invoice line with a `menuItemId` whose `MenuItem` has a non-empty `recipe`, `foodCost += Σ(recipeLine.qty × inventoryItem.avgCost) × item.qty`; a line with no `menuItemId`, no matching `MenuItem`, or an empty `recipe` contributes `0`. Every distinct `MenuItem` (with its `recipe`) and every distinct `InventoryItem` referenced by those recipes is batch-loaded ONCE per request (`loadMenuAndInventoryMaps`), not per invoice line. **Note**: this is a *retrospective* costing lens — it applies the menu item's **current** recipe/`avgCost` to historical invoice lines, not whatever recipe existed at the time each sale happened (unlike the real-time stock-deduction subscriber, which only ever deducts using the recipe live at deduction time). This is intentional for a profitability report (“what would this period have cost at today's ingredient prices/recipe”) but is a documented deviation from event-sourcing-style historical accuracy.
+
+### Multi-tenant hardening — branch-data isolation
+
+Phase 5.1 added `tenantId`/`branchId` fields to every schema but didn't enforce them in queries. Phase 5.3 makes branch scoping **real** for a specific set of collections, while leaving tenant-level/global collections untouched.
+
+**Request context** (`src/common/requestContext.js`): a `node:async_hooks` `AsyncLocalStorage` carrying `{tenantId, branchId}` through the entire async call chain of a request — including event-bus subscribers invoked synchronously from within a request handler (`eventBus.publish` → `EventEmitter.emit` → an `async` subscriber's `await`s all execute inside the same continuation, so the context is still visible there). `tenantContext` middleware (`src/common/middleware/tenantContext.js`) wraps the rest of the request in `requestContext.run({tenantId, branchId}, () => next())`.
+
+**Branch resolution**: the `x-branch-id` header is honored only when it names an **ACTIVE** branch (case-insensitive against `Branch.code`) — otherwise it's ignored and `'main'` applies. Active branch codes are cached in-process for **~30s** (`tenantContext.js`'s `getActiveBranchCodes`) to avoid a DB round-trip on every request.
+
+**Scoping mechanism** (`src/common/database/tenantPlugin.js`): a schema opts in via `new mongoose.Schema({...}, {branchScoped: true})`. When set:
+- Every `find`/`findOne`/`findOneAndUpdate`/`findOneAndDelete`/`update*`/`deleteOne`/`deleteMany`/`countDocuments` query gets `branchId: ctx.branchId` injected into its filter — **unless** the filter already specifies a `branchId` (explicit always wins) or the query passed `.setOptions({skipBranchScope: true})` (the sanctioned escape hatch, used by `analytics.byBranch`).
+- Every `aggregate()` pipeline gets a `{$match: {branchId: ctx.branchId}}` prepended — same explicit-filter and `skipBranchScope` escapes (checked via the aggregate's own `.option()`).
+- Every **new** document gets `branchId` stamped from the context on `pre('save')` — so a `POST` made with `x-branch-id: b2` actually persists under branch `b2` instead of silently defaulting to `'main'`.
+- **Outside a request context** (scripts, `npm run seed`, `npm run migrate:tenant`, a background timer not spawned from within `als.run`) none of this applies — `requestContext.get()` returns `undefined`, and the hooks treat that as "no scoping," never as "scope to nothing." This is why the legacy/no-header flow is unaffected: the default context is `{branchId: 'main'}`, which matches every pre-Phase-5.3 document (they all default to `branchId: 'main'` via the Phase 5.1 plugin).
+
+**Branch-scoped collections** (`branchScoped: true`): `tables`, `orders`, `kots`, `invoices`, `payments`, `shifts`, `reservations`, `inventoryItems`, `stockTransactions`, `purchaseOrders`.
+
+**NOT branch-scoped** (tenant-level/global, unchanged): `users`, `roles`, `settings`, `customers`, `menu` (categories/menu items), `vendors`, `branches`, `audit`. Rationale: staff, permissions, restaurant-wide settings, the shared customer/menu catalog, and the audit trail are conceptually restaurant-wide, not per-branch, in this app's model.
+
+**Per-branch counters**: `src/common/utils/branchCounter.js` reads the current `branchId` from the request context. `'main'` (the pre-existing, single-branch reality) keeps its counter `Counter.key` (e.g. `order-20260711`) and visible number format (`ORD-20260711-0001`) **byte-for-byte backward compatible**. Any other branch gets both its `Counter.key` suffixed (`order-20260711-b2`) AND its visible number prefixed (`ORD-B2-20260711-0001`) — otherwise two branches would each mint `ORD-20260711-0001` on the same day and collide on the `unique: true` `orderNumber` index. Applied to `nextOrderNumber`/`nextInvoiceNumber`/`nextKotNumber`/`nextPoNumber`/`nextShiftNumber`/`nextReservationNumber`.
+
+**Verified**: creating a branch via `POST /api/branches`, then a table/invoice with `x-branch-id: <code>` — the new docs carry that `branchId`, are visible with the header and invisible without it, and their invoice-number sequence starts independently at `0001` (prefixed) while the `'main'` sequence continues unaffected. Legacy flows (`GET /api/invoice`, `GET /api/orders`, `GET /api/tables` with no header) are unaffected — they simply keep seeing `branchId: 'main'` data, exactly as before this phase.
+
+### Flags, permissions (5.3)
+
+`settings.features.onlineOrdering` (default `false`) — gates `/api/public/*` (see above). New permission `analytics.view` — seed: Admin and Manager (via the same "everything except the excluded list" pattern; not added to `MANAGER_ONLY_EXCLUDED`).

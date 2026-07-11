@@ -41,7 +41,7 @@ const kotSchema = new mongoose.Schema(
       default: () => [{ status: 'NEW', at: new Date() }],
     },
   },
-  { timestamps: true }
+  { timestamps: true, branchScoped: true }
 );
 
 module.exports = mongoose.model('Kot', kotSchema);

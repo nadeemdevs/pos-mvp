@@ -19,11 +19,20 @@ import PurchasingPage from '../pages/PurchasingPage'
 import AuditPage from '../pages/AuditPage'
 import ReservationsPage from '../pages/ReservationsPage'
 import ShiftsPage from '../pages/ShiftsPage'
+import AnalyticsPage from '../pages/AnalyticsPage'
+import QrOrderPage from '../pages/qr/QrOrderPage'
 
 export const router = createBrowserRouter([
   {
     path: '/login',
     element: <LoginPage />,
+  },
+  // Public QR-ordering surface — deliberately OUTSIDE ProtectedRoute/AppLayout.
+  // Guests scan a table QR code and land here with no auth, no sidebar, and
+  // must never be redirected to /login (see api.js response interceptor).
+  {
+    path: '/qr/:qrToken',
+    element: <QrOrderPage />,
   },
   {
     element: <ProtectedRoute />,
@@ -62,6 +71,10 @@ export const router = createBrowserRouter([
           {
             element: <ProtectedRoute permission="reports.view" />,
             children: [{ path: '/reports', element: <ReportsPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="analytics.view" requireFeature="analytics" />,
+            children: [{ path: '/analytics', element: <AnalyticsPage /> }],
           },
           {
             element: (

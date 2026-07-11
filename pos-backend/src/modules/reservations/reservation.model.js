@@ -22,7 +22,7 @@ const reservationSchema = new mongoose.Schema(
     },
     orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
   },
-  { timestamps: true }
+  { timestamps: true, branchScoped: true }
 );
 
 module.exports = mongoose.model('Reservation', reservationSchema);

@@ -24,7 +24,7 @@ const purchaseOrderSchema = new mongoose.Schema(
     expectedAt: { type: Date },
     note: { type: String, default: '' },
   },
-  { timestamps: true }
+  { timestamps: true, branchScoped: true }
 );
 
 module.exports = mongoose.model('PurchaseOrder', purchaseOrderSchema);

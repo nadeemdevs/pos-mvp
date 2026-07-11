@@ -27,6 +27,8 @@ export default function DashboardPage() {
   const canViewInventory = hasPermission('inventory.manage') || hasPermission('purchasing.manage')
   const showLowStockCard = inventoryEnabled && canViewInventory
 
+  const showAnalyticsLink = !!settings?.features?.analytics && hasPermission('analytics.view')
+
   // The Inventory backend may not be deployed yet — request defensively and
   // fall back to a dash rather than surfacing an error on the dashboard.
   const { data: lowStockData, isError: lowStockError } = useQuery({
@@ -45,8 +47,17 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <h1 className="page-title">Dashboard</h1>
-      <p className="page-subtitle">Today's overview — {today}</p>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Dashboard</h1>
+          <p className="page-subtitle">Today's overview — {today}</p>
+        </div>
+        {showAnalyticsLink && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => navigate('/analytics')}>
+            View analytics →
+          </button>
+        )}
+      </div>
 
       <div className="stat-cards">
         <div className="stat-card">

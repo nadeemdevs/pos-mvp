@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const Table = require('./table.model');
 const Order = require('../orders/order.model');
 const Kot = require('../kots/kot.model');
@@ -201,4 +202,24 @@ async function mergeTables(intoTableId, fromTableId) {
   return { destTable, srcTable, destOrder, srcOrder };
 }
 
-module.exports = { listTables, createTable, updateTable, deleteTable, transferTable, mergeTables };
+// (Re)generates the QR-ordering token for a table — printed onto a physical
+// QR sticker that resolves via GET /api/public/table/:qrToken. Regenerating
+// invalidates any previously-printed code (old token no longer resolves).
+async function generateQrToken(id) {
+  const table = await Table.findById(id);
+  if (!table) throw notFound('Table not found');
+
+  table.qrToken = crypto.randomBytes(16).toString('hex');
+  await table.save();
+  return table;
+}
+
+module.exports = {
+  listTables,
+  createTable,
+  updateTable,
+  deleteTable,
+  transferTable,
+  mergeTables,
+  generateQrToken,
+};

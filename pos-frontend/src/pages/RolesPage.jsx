@@ -27,6 +27,7 @@ const ALL_PERMISSIONS = [
   'loyalty.manage',
   'reservations.manage',
   'shifts.manage',
+  'analytics.view',
 ]
 
 const PERMISSION_LABELS = {
@@ -40,6 +41,7 @@ const PERMISSION_LABELS = {
   'loyalty.manage': 'Manage Loyalty (adjust customer points)',
   'reservations.manage': 'Manage Reservations (book, seat, cancel)',
   'shifts.manage': 'Manage Shifts (open/close, cash reconciliation)',
+  'analytics.view': 'View Analytics (revenue, profitability, channels)',
 }
 
 const emptyForm = { name: '', permissions: [] }
