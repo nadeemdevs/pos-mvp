@@ -3,6 +3,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import Modal from './Modal'
 import { formatCurrency } from '../utils/format'
 import { cancelCardPayment, getPayment, initiateCardPayment } from '../services/paymentService'
+import { getLoyaltySummary, redeemLoyaltyPoints } from '../services/loyaltyService'
+import { toast } from '../store/toastStore'
 
 const QUICK_CASH = [100, 200, 500]
 
@@ -33,6 +35,7 @@ export default function PaymentModal({
   settings,
   onConfirm,
   onCardSuccess,
+  onInvoiceUpdate,
   isSubmitting,
 }) {
   const [method, setMethod] = useState('CASH')
@@ -47,6 +50,8 @@ export default function PaymentModal({
   const [cardPayment, setCardPayment] = useState(null)
   const [cardError, setCardError] = useState('')
 
+  const [redeemPoints, setRedeemPoints] = useState('')
+
   useEffect(() => {
     if (open) {
       setMethod('CASH')
@@ -56,11 +61,38 @@ export default function PaymentModal({
       setCardPayment(null)
       setCardError('')
       setProvider(enabledProviders[0] || '')
+      setRedeemPoints('')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  const customerId = invoice?.customer?._id || invoice?.customer?.id || invoice?.customerId
+  const loyaltyEnabled = !!settings?.features?.loyalty && !!customerId
+
+  const { data: loyaltySummary } = useQuery({
+    queryKey: ['loyalty', 'summary', customerId],
+    queryFn: () => getLoyaltySummary(customerId),
+    enabled: open && loyaltyEnabled,
+  })
+
+  const alreadyRedeemed = !!invoice?.loyaltyPoints
+  const pointValue = loyaltySummary?.pointValue || 1
   const total = invoice?.total || 0
+  const maxRedeemable = Math.min(
+    loyaltySummary?.points || 0,
+    Math.floor(total / pointValue) || 0,
+  )
+  const redeemPreview = (Number(redeemPoints) || 0) * pointValue
+
+  const redeemMutation = useMutation({
+    mutationFn: () =>
+      redeemLoyaltyPoints({ invoiceId: invoice._id || invoice.id, points: Number(redeemPoints) }),
+    onSuccess: (updatedInvoice) => {
+      onInvoiceUpdate?.(updatedInvoice)
+      toast('Loyalty points applied', 'success')
+    },
+    onError: (e) => toast(e.response?.data?.message || 'Failed to redeem points', 'error'),
+  })
 
   const change = useMemo(() => {
     const t = Number(tendered) || 0
@@ -253,6 +285,50 @@ export default function PaymentModal({
 
   return (
     <Modal open={open} onClose={handleClose} title="Take Payment" width="420px">
+      {loyaltyEnabled && (
+        <div className="loyalty-block">
+          <div className="loyalty-block-header">
+            <span>Loyalty</span>
+            {loyaltySummary?.tier && <span className="tier-badge">{loyaltySummary.tier}</span>}
+          </div>
+          <div className="loyalty-block-balance">
+            {loyaltySummary?.points ?? 0} pts available
+          </div>
+          {alreadyRedeemed ? (
+            <div className="loyalty-applied">
+              −{formatCurrency(invoice.loyaltyDiscount, currency)} ({invoice.loyaltyPoints} pts)
+            </div>
+          ) : (
+            <div className="loyalty-redeem-row">
+              <input
+                type="number"
+                min="0"
+                max={maxRedeemable}
+                placeholder="Points to redeem"
+                value={redeemPoints}
+                onChange={(e) => setRedeemPoints(e.target.value)}
+              />
+              <span className="loyalty-preview">
+                {redeemPreview > 0 ? `→ −${formatCurrency(redeemPreview, currency)}` : ''}
+              </span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={
+                  !redeemPoints ||
+                  Number(redeemPoints) <= 0 ||
+                  Number(redeemPoints) > maxRedeemable ||
+                  redeemMutation.isPending
+                }
+                onClick={() => redeemMutation.mutate()}
+              >
+                {redeemMutation.isPending ? 'Applying…' : 'Apply'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="payment-total">
         <span>Amount Due</span>
         <span>{formatCurrency(total, currency)}</span>

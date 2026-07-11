@@ -61,8 +61,10 @@ function computeDiscountAmount(subtotal, tax, discountType, discountValue) {
 }
 
 // Discount may never exceed subtotal+tax, and (for non-Admins) may never
-// exceed settings.discounts.maxPercent of subtotal+tax.
-function validateDiscount(discount, grossTotal, settings, user) {
+// exceed settings.discounts.maxPercent of subtotal+tax — unless a valid
+// manager-approval token was presented (Phase 5.2), in which case the
+// maxPercent check is bypassed (the hard subtotal+tax ceiling still applies).
+function validateDiscount(discount, grossTotal, settings, user, approved = false) {
   if (discount > grossTotal) {
     const err = new Error('Discount cannot exceed subtotal plus tax');
     err.status = 400;
@@ -74,7 +76,7 @@ function validateDiscount(discount, grossTotal, settings, user) {
   if (grossTotal > 0 && discount > 0) {
     const effectivePercent = (discount / grossTotal) * 100;
     const isAdmin = user && user.role === 'Admin';
-    if (effectivePercent > maxPercent && !isAdmin) {
+    if (effectivePercent > maxPercent && !isAdmin && !approved) {
       const err = new Error(`Discount exceeds the maximum allowed ${maxPercent}%`);
       err.status = 400;
       throw err;
@@ -108,6 +110,7 @@ async function buildInvoice({
   user,
   orderId,
   orderNumber,
+  approved = false,
 }) {
   if (!items.length) {
     const err = new Error('Invoice must have at least one item');
@@ -121,7 +124,7 @@ async function buildInvoice({
 
   const discount = computeDiscountAmount(subtotal, tax, discountType, discountValue);
 
-  validateDiscount(discount, grossTotal, settings, user);
+  validateDiscount(discount, grossTotal, settings, user, approved);
 
   const { total, roundOff } = applyRounding(round2(grossTotal - discount), settings);
 
@@ -156,11 +159,11 @@ async function buildInvoice({
   return invoice;
 }
 
-async function createInvoice(payload, user) {
+async function createInvoice(payload, user, { approved = false } = {}) {
   const { items = [], customer, status = 'OPEN', note } = payload;
   const { discountType, discountValue } = resolveDiscountInput(payload);
 
-  return buildInvoice({ items, customer, status, note, discountType, discountValue, user });
+  return buildInvoice({ items, customer, status, note, discountType, discountValue, user, approved });
 }
 
 // Maps embedded Order.items (menuItemId/price/qty/taxRate/modifiers) into
@@ -242,7 +245,7 @@ async function getInvoice(id) {
   return invoice;
 }
 
-async function updateInvoice(id, payload, user) {
+async function updateInvoice(id, payload, user, { approved = false } = {}) {
   const invoice = await Invoice.findById(id);
   if (!invoice) {
     const err = new Error('Invoice not found');
@@ -253,6 +256,15 @@ async function updateInvoice(id, payload, user) {
   const { items, customer, status, note } = payload;
 
   if (status === 'CANCELLED') {
+    // Give back any loyalty points redeemed against this (unpaid) bill.
+    if (invoice.paymentStatus === 'PENDING' && invoice.loyaltyPoints > 0) {
+      try {
+        const loyaltyService = require('../loyalty/loyalty.service');
+        await loyaltyService.refundRedemption(invoice);
+      } catch (err) {
+        console.error('[billing] loyalty refund on cancel failed:', err.message);
+      }
+    }
     invoice.status = 'CANCELLED';
     await invoice.save();
     return invoice;
@@ -299,7 +311,7 @@ async function updateInvoice(id, payload, user) {
     discountValue = invoice.discountValue !== undefined && invoice.discountValue !== null ? invoice.discountValue : discount;
   }
 
-  validateDiscount(discount, grossTotal, settings, user);
+  validateDiscount(discount, grossTotal, settings, user, approved);
 
   const { total, roundOff } = applyRounding(round2(grossTotal - discount), settings);
 

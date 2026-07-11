@@ -1,12 +1,13 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createInvoice, updateInvoice } from '../services/invoiceService'
-import { getCustomers } from '../services/customerService'
 import { takePayment } from '../services/paymentService'
 import { getSettings } from '../services/settingsService'
+import { getCurrentShift } from '../services/shiftService'
+import { setApprovalToken } from '../services/api'
 import { useCartStore } from '../store/cartStore'
 import { toast } from '../store/toastStore'
-import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { computeRoundOff, formatCurrency } from '../utils/format'
 import HeldBillsModal from '../components/HeldBillsModal'
 import DineInBillsModal from '../components/DineInBillsModal'
@@ -15,87 +16,9 @@ import PaymentModal from '../components/PaymentModal'
 import Receipt from '../components/Receipt'
 import MenuPicker from '../components/MenuPicker'
 import EmptyState from '../components/EmptyState'
+import CustomerLookup from '../components/CustomerLookup'
+import ApprovalPinModal from '../components/ApprovalPinModal'
 import { useAuthStore } from '../store/authStore'
-
-function CustomerLookup({ customer, onFieldChange, onSelect, onClear }) {
-  const [dropdownOpen, setDropdownOpen] = useState(false)
-  const phone = customer?.phone || ''
-  const name = customer?.name || ''
-  const debouncedPhone = useDebouncedValue(phone, 300)
-  const trimmedPhone = debouncedPhone.trim()
-
-  const { data } = useQuery({
-    queryKey: ['customers', 'lookup', trimmedPhone],
-    queryFn: () => getCustomers({ search: trimmedPhone, limit: 6 }),
-    enabled: trimmedPhone.length >= 3,
-  })
-  const matches = Array.isArray(data) ? data : data?.items || []
-  const exactMatch = matches.some((c) => c.phone === phone)
-  const hasDetails = phone.trim().length > 0 || name.trim().length > 0
-
-  const handlePhoneChange = (value) => {
-    onFieldChange({ ...customer, phone: value })
-    setDropdownOpen(value.trim().length >= 3)
-  }
-
-  const handleSelect = (c) => {
-    onSelect({ name: c.name, phone: c.phone })
-    setDropdownOpen(false)
-  }
-
-  return (
-    <div>
-      <div className="field-row customer-lookup-row">
-        <label className="field customer-lookup">
-          <span>Phone</span>
-          <input
-            value={phone}
-            placeholder="Search or enter phone"
-            onChange={(e) => handlePhoneChange(e.target.value)}
-            onFocus={() => setDropdownOpen(phone.trim().length >= 3)}
-            onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
-          />
-          {dropdownOpen && matches.length > 0 && (
-            <div className="customer-lookup-dropdown">
-              {matches.map((c) => (
-                <button
-                  type="button"
-                  key={c._id || c.id}
-                  className="customer-lookup-item"
-                  onMouseDown={() => handleSelect(c)}
-                >
-                  <span>{c.name}</span>
-                  <span className="customer-lookup-item-phone">{c.phone}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </label>
-        <label className="field">
-          <span>Customer Name</span>
-          <input
-            value={name}
-            onChange={(e) => onFieldChange({ ...customer, name: e.target.value })}
-          />
-        </label>
-        {hasDetails && (
-          <button
-            type="button"
-            className="customer-clear-btn"
-            title="Remove customer"
-            aria-label="Remove customer"
-            onClick={onClear}
-          >
-            ×
-          </button>
-        )}
-      </div>
-      {hasDetails && !exactMatch && (
-        <p className="customer-hint">New customer will be saved</p>
-      )}
-    </div>
-  )
-}
 
 function DiscountEditor({ discountType, discountValue, presets, maxPercent, onSetType, onSetValue, onApplyPreset }) {
   const displayType = discountType || 'FLAT'
@@ -166,6 +89,7 @@ export default function BillingPage() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [activeInvoice, setActiveInvoice] = useState(null)
   const [paymentResult, setPaymentResult] = useState(null)
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false)
 
   const hasPermission = useAuthStore((s) => s.hasPermission)
 
@@ -182,6 +106,19 @@ export default function BillingPage() {
   const maxPercent = settings?.discounts?.maxPercent
   const presets = settings?.discounts?.presets || []
   const dineInEnabled = !!settings?.features?.dineIn && hasPermission('billing.create')
+
+  // Non-blocking cash-reconciliation nudge — only fetched when shifts are on
+  // and the user manages them; degrades silently on any error (404 when no
+  // shift is open is expected, not a failure).
+  const shiftsFeatureOn = !!settings?.features?.shifts && hasPermission('shifts.manage')
+  const { data: currentShiftData } = useQuery({
+    queryKey: ['shifts', 'current'],
+    queryFn: getCurrentShift,
+    enabled: shiftsFeatureOn,
+    retry: false,
+  })
+  const hasOpenShift = !!(currentShiftData?.shift || currentShiftData?._id)
+  const showNoShiftBanner = shiftsFeatureOn && !hasOpenShift
 
   const subtotal = cart.getSubtotal()
   const tax = cart.getTax()
@@ -239,8 +176,21 @@ export default function BillingPage() {
       setPaymentModalOpen(true)
       invalidateInvoices()
     },
-    onError: (e) => toast(e.response?.data?.message || 'Failed to create invoice', 'error'),
+    onError: (e) => {
+      const message = e.response?.data?.message || 'Failed to create invoice'
+      if (e.response?.status === 400 && /discount exceeds/i.test(message)) {
+        setApprovalModalOpen(true)
+        return
+      }
+      toast(message, 'error')
+    },
   })
+
+  const handleApprovalApproved = (token) => {
+    setApprovalToken(token)
+    setApprovalModalOpen(false)
+    chargeMutation.mutate()
+  }
 
   const paymentMutation = useMutation({
     mutationFn: takePayment,
@@ -327,6 +277,14 @@ export default function BillingPage() {
       </div>
 
       <div className="billing-right">
+        {showNoShiftBanner && (
+          <div className="banner banner-warning">
+            <span>No shift open — cash reconciliation is off</span>
+            <Link to="/shifts" className="banner-link">
+              Open a shift
+            </Link>
+          </div>
+        )}
         <div className="cart-header">
           <h2>Current Bill</h2>
           <div className="cart-header-actions">
@@ -467,6 +425,13 @@ export default function BillingPage() {
         isSubmitting={paymentMutation.isPending}
         onConfirm={(data) => paymentMutation.mutate(data)}
         onCardSuccess={handleCardSuccess}
+        onInvoiceUpdate={setActiveInvoice}
+      />
+
+      <ApprovalPinModal
+        open={approvalModalOpen}
+        onClose={() => setApprovalModalOpen(false)}
+        onApproved={handleApprovalApproved}
       />
 
       {dineInEnabled && (

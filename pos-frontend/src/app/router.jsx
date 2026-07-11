@@ -17,6 +17,8 @@ import SettingsPage from '../pages/SettingsPage'
 import InventoryPage from '../pages/InventoryPage'
 import PurchasingPage from '../pages/PurchasingPage'
 import AuditPage from '../pages/AuditPage'
+import ReservationsPage from '../pages/ReservationsPage'
+import ShiftsPage from '../pages/ShiftsPage'
 
 export const router = createBrowserRouter([
   {
@@ -77,6 +79,19 @@ export const router = createBrowserRouter([
           {
             element: <ProtectedRoute permission="audit.view" />,
             children: [{ path: '/audit', element: <AuditPage /> }],
+          },
+          {
+            element: (
+              <ProtectedRoute
+                anyPermission={['reservations.manage', 'orders.take']}
+                requireFeature="reservations"
+              />
+            ),
+            children: [{ path: '/reservations', element: <ReservationsPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="shifts.manage" requireFeature="shifts" />,
+            children: [{ path: '/shifts', element: <ShiftsPage /> }],
           },
           {
             element: <ProtectedRoute permission="users.manage" />,

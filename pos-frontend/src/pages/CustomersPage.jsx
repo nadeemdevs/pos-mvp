@@ -8,6 +8,9 @@ import {
   getCustomers,
   updateCustomer,
 } from '../services/customerService'
+import { getLoyaltySummary, getLoyaltyTransactions, adjustLoyaltyPoints } from '../services/loyaltyService'
+import { getSettings } from '../services/settingsService'
+import { useAuthStore } from '../store/authStore'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import Modal from '../components/Modal'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -261,6 +264,9 @@ export default function CustomersPage() {
 }
 
 function CustomerDetailModal({ id, onClose }) {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
+  const loyaltyOn = !!settings?.features?.loyalty
+
   const { data: customer, isLoading } = useQuery({
     queryKey: ['customers', id],
     queryFn: () => getCustomer(id),
@@ -273,6 +279,7 @@ function CustomerDetailModal({ id, onClose }) {
     enabled: !!id,
   })
   const invoices = Array.isArray(invoicesData) ? invoicesData : invoicesData?.items || []
+  const topItems = customer?.topItems || []
 
   return (
     <Modal open={!!id} onClose={onClose} title={customer?.name || 'Customer'} width="640px">
@@ -302,6 +309,22 @@ function CustomerDetailModal({ id, onClose }) {
               </span>
             </div>
           </div>
+
+          {topItems.length > 0 && (
+            <>
+              <h2>Favourites</h2>
+              <ul className="favourites-list">
+                {topItems.map((item, idx) => (
+                  <li key={idx} className="favourites-item">
+                    <span>{item.name} × {item.qty}</span>
+                    <span>{formatCurrency(item.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          {loyaltyOn && id && <LoyaltyCard customerId={id} />}
 
           <h2>Recent Invoices</h2>
           {invoicesLoading ? (
@@ -341,5 +364,192 @@ function CustomerDetailModal({ id, onClose }) {
         </>
       )}
     </Modal>
+  )
+}
+
+const TXN_TYPE_CLASS = {
+  EARN: 'txn-earn',
+  REFERRAL: 'txn-earn',
+  REDEEM: 'txn-redeem',
+  ADJUST: 'txn-adjust',
+}
+
+function LoyaltyCard({ customerId }) {
+  const queryClient = useQueryClient()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canManage = hasPermission('loyalty.manage')
+  const [page, setPage] = useState(1)
+  const [adjustOpen, setAdjustOpen] = useState(false)
+  const [adjustPoints, setAdjustPoints] = useState('')
+  const [adjustNote, setAdjustNote] = useState('')
+  const PAGE_SIZE = 10
+
+  const { data: summary, isLoading } = useQuery({
+    queryKey: ['loyalty', 'summary', customerId],
+    queryFn: () => getLoyaltySummary(customerId),
+    enabled: !!customerId,
+  })
+
+  const { data: txnData, isLoading: txnLoading } = useQuery({
+    queryKey: ['loyalty', 'transactions', customerId, page],
+    queryFn: () => getLoyaltyTransactions(customerId, { page, limit: PAGE_SIZE }),
+    enabled: !!customerId,
+  })
+  const transactions = Array.isArray(txnData) ? txnData : txnData?.items || []
+
+  const adjustMutation = useMutation({
+    mutationFn: () =>
+      adjustLoyaltyPoints({
+        customerId,
+        points: Number(adjustPoints),
+        note: adjustNote,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['loyalty', 'summary', customerId] })
+      queryClient.invalidateQueries({ queryKey: ['loyalty', 'transactions', customerId] })
+      toast('Points adjusted', 'success')
+      setAdjustOpen(false)
+      setAdjustPoints('')
+      setAdjustNote('')
+    },
+    onError: (e) => toast(e.response?.data?.message || 'Failed to adjust points', 'error'),
+  })
+
+  if (isLoading) {
+    return (
+      <>
+        <h2>Loyalty</h2>
+        <Spinner label="Loading loyalty…" />
+      </>
+    )
+  }
+  if (!summary) return null
+
+  const progressPct = summary.nextTier?.pointsNeeded
+    ? Math.max(
+        0,
+        Math.min(
+          100,
+          100 -
+            (summary.nextTier.pointsNeeded /
+              (summary.nextTier.pointsNeeded + (summary.points || 0))) *
+              100,
+        ),
+      )
+    : 100
+
+  return (
+    <>
+      <h2>Loyalty</h2>
+      <div className="loyalty-card">
+        <div className="loyalty-card-top">
+          <span className="tier-badge">{summary.tier}</span>
+          <span className="loyalty-points-balance">{summary.points} pts</span>
+        </div>
+        <div className="loyalty-card-lifetime">Lifetime: {summary.lifetimePoints} pts</div>
+        {summary.nextTier?.name && (
+          <div className="loyalty-progress-wrap">
+            <div className="loyalty-progress-bar">
+              <div className="loyalty-progress-fill" style={{ width: `${progressPct}%` }} />
+            </div>
+            <span className="loyalty-progress-label">
+              {summary.nextTier.pointsNeeded} pts to {summary.nextTier.name}
+            </span>
+          </div>
+        )}
+
+        {canManage && (
+          <div className="loyalty-adjust">
+            {!adjustOpen ? (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAdjustOpen(true)}>
+                Adjust points
+              </button>
+            ) : (
+              <form
+                className="loyalty-adjust-form"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  if (adjustPoints) adjustMutation.mutate()
+                }}
+              >
+                <input
+                  type="number"
+                  placeholder="± points"
+                  value={adjustPoints}
+                  onChange={(e) => setAdjustPoints(e.target.value)}
+                />
+                <input
+                  placeholder="Note"
+                  value={adjustNote}
+                  onChange={(e) => setAdjustNote(e.target.value)}
+                />
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                  disabled={!adjustPoints || adjustMutation.isPending}
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setAdjustOpen(false)}
+                >
+                  Cancel
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+
+        <h3 className="loyalty-txn-title">Transactions</h3>
+        {txnLoading ? (
+          <Spinner label="Loading transactions…" />
+        ) : transactions.length === 0 ? (
+          <EmptyState title="No loyalty activity yet" />
+        ) : (
+          <>
+            <ul className="loyalty-txn-list">
+              {transactions.map((t, idx) => (
+                <li key={idx} className="loyalty-txn-item">
+                  <span className="loyalty-txn-meta">
+                    <span className={`loyalty-txn-type ${TXN_TYPE_CLASS[t.type] || ''}`}>
+                      {t.type}
+                    </span>
+                    {t.note && <span className="loyalty-txn-note">{t.note}</span>}
+                    <span className="loyalty-txn-date">{formatDateTime(t.createdAt)}</span>
+                  </span>
+                  <span
+                    className={
+                      t.points >= 0 ? 'loyalty-txn-points positive' : 'loyalty-txn-points negative'
+                    }
+                  >
+                    {t.points >= 0 ? '+' : ''}
+                    {t.points}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="pagination-row">
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Previous
+              </button>
+              <span className="pagination-label">Page {page}</span>
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={transactions.length < PAGE_SIZE}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </>
   )
 }

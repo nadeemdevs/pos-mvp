@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getSettings, updateSettings } from '../services/settingsService'
 import { testPrint } from '../services/printService'
 import { createBranch, getBranches, updateBranch } from '../services/branchService'
+import { setApprovalPin } from '../services/approvalService'
 import { useAuthStore } from '../store/authStore'
 import { toast } from '../store/toastStore'
 import Spinner from '../components/Spinner'
@@ -33,9 +34,18 @@ const emptyPaymentProviders = {
 
 const emptyDiscounts = { maxPercent: '', presets: [] }
 const emptyRounding = { enabled: false, nearest: 1 }
-const emptyFeatures = { dineIn: false, inventory: false, crm: false, loyalty: false, analytics: false }
+const emptyFeatures = {
+  dineIn: false,
+  inventory: false,
+  crm: false,
+  loyalty: false,
+  analytics: false,
+  reservations: false,
+  shifts: false,
+}
 const emptyPrintTarget = { provider: 'BROWSER', host: '', port: '' }
 const emptyPrinting = { kot: { ...emptyPrintTarget }, receipt: { ...emptyPrintTarget } }
+const emptyLoyalty = { pointsPer100: '', pointValue: '', referralBonus: '', tiers: [] }
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
@@ -45,7 +55,10 @@ export default function SettingsPage() {
   const [rounding, setRounding] = useState(emptyRounding)
   const [features, setFeatures] = useState(emptyFeatures)
   const [printing, setPrinting] = useState(emptyPrinting)
+  const [loyalty, setLoyalty] = useState(emptyLoyalty)
   const [browserTestPayload, setBrowserTestPayload] = useState(null)
+  const [pin, setPin] = useState('')
+  const [pinConfirm, setPinConfirm] = useState('')
 
   const { data, isLoading } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
 
@@ -84,10 +97,18 @@ export default function SettingsPage() {
         crm: data.features?.crm ?? false,
         loyalty: data.features?.loyalty ?? false,
         analytics: data.features?.analytics ?? false,
+        reservations: data.features?.reservations ?? false,
+        shifts: data.features?.shifts ?? false,
       })
       setPrinting({
         kot: { ...emptyPrintTarget, ...data.printing?.kot },
         receipt: { ...emptyPrintTarget, ...data.printing?.receipt },
+      })
+      setLoyalty({
+        pointsPer100: data.loyalty?.pointsPer100 ?? '',
+        pointValue: data.loyalty?.pointValue ?? '',
+        referralBonus: data.loyalty?.referralBonus ?? '',
+        tiers: data.loyalty?.tiers || [],
       })
     }
   }, [data])
@@ -143,6 +164,46 @@ export default function SettingsPage() {
       ...prev,
       presets: prev.presets.filter((_, i) => i !== idx),
     }))
+  }
+
+  const addTier = () => {
+    setLoyalty((prev) => ({
+      ...prev,
+      tiers: [...prev.tiers, { name: '', minPoints: 0 }],
+    }))
+  }
+
+  const updateTier = (idx, field, value) => {
+    setLoyalty((prev) => ({
+      ...prev,
+      tiers: prev.tiers.map((t, i) => (i === idx ? { ...t, [field]: value } : t)),
+    }))
+  }
+
+  const removeTier = (idx) => {
+    setLoyalty((prev) => ({
+      ...prev,
+      tiers: prev.tiers.filter((_, i) => i !== idx),
+    }))
+  }
+
+  const pinMutation = useMutation({
+    mutationFn: () => setApprovalPin(pin),
+    onSuccess: () => {
+      toast('Manager PIN updated', 'success')
+      setPin('')
+      setPinConfirm('')
+    },
+    onError: (e) => toast(e.response?.data?.message || 'Failed to update PIN', 'error'),
+  })
+
+  const handlePinSubmit = (e) => {
+    e.preventDefault()
+    if (pin !== pinConfirm) {
+      toast('PINs do not match', 'error')
+      return
+    }
+    pinMutation.mutate()
   }
 
   const updatePrintTarget = (section, field, value) => {
@@ -215,6 +276,16 @@ export default function SettingsPage() {
           host: printing.receipt.host,
           port: printing.receipt.port ? Number(printing.receipt.port) : undefined,
         },
+      },
+      loyalty: {
+        ...(data?.loyalty || {}),
+        pointsPer100: Number(loyalty.pointsPer100) || 0,
+        pointValue: Number(loyalty.pointValue) || 0,
+        referralBonus: Number(loyalty.referralBonus) || 0,
+        tiers: loyalty.tiers.map((t) => ({
+          name: t.name,
+          minPoints: Number(t.minPoints) || 0,
+        })),
       },
     })
   }
@@ -536,7 +607,91 @@ export default function SettingsPage() {
             />
             <span>Enable Analytics</span>
           </label>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={features.reservations}
+              onChange={(e) => setFeatures({ ...features, reservations: e.target.checked })}
+            />
+            <span>Enable Reservations</span>
+          </label>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={features.shifts}
+              onChange={(e) => setFeatures({ ...features, shifts: e.target.checked })}
+            />
+            <span>Enable Shifts (cash reconciliation)</span>
+          </label>
         </div>
+
+        {features.loyalty && (
+          <div className="card settings-form">
+            <h2>Loyalty</h2>
+            <div className="field-row">
+              <label className="field">
+                <span>Points per ₹100 spent</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={loyalty.pointsPer100}
+                  onChange={(e) => setLoyalty({ ...loyalty, pointsPer100: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>Point value (₹ per point)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={loyalty.pointValue}
+                  onChange={(e) => setLoyalty({ ...loyalty, pointValue: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>Referral bonus (pts)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={loyalty.referralBonus}
+                  onChange={(e) => setLoyalty({ ...loyalty, referralBonus: e.target.value })}
+                />
+              </label>
+            </div>
+
+            <span className="field-label">Tiers</span>
+            {loyalty.tiers.map((t, idx) => (
+              <div className="preset-row" key={idx}>
+                <input
+                  className="preset-row-label"
+                  placeholder="Tier name"
+                  value={t.name}
+                  onChange={(e) => updateTier(idx, 'name', e.target.value)}
+                />
+                <input
+                  className="preset-row-value"
+                  type="number"
+                  min="0"
+                  placeholder="Min points"
+                  value={t.minPoints}
+                  onChange={(e) => updateTier(idx, 'minPoints', e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm btn-danger-text"
+                  onClick={() => removeTier(idx)}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            <button type="button" className="btn btn-ghost btn-sm" onClick={addTier}>
+              + Add tier
+            </button>
+          </div>
+        )}
 
         <div className="card settings-form printing-card">
           <h2>Printing</h2>
@@ -613,7 +768,59 @@ export default function SettingsPage() {
         </div>
       )}
 
+      <ApprovalsCard
+        pin={pin}
+        pinConfirm={pinConfirm}
+        setPin={setPin}
+        setPinConfirm={setPinConfirm}
+        onSubmit={handlePinSubmit}
+        isSubmitting={pinMutation.isPending}
+        maxPercent={discounts.maxPercent}
+      />
+
       <BranchesCard />
+    </div>
+  )
+}
+
+function ApprovalsCard({ pin, pinConfirm, setPin, setPinConfirm, onSubmit, isSubmitting, maxPercent }) {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  if (!hasPermission('settings.manage')) return null
+
+  return (
+    <div className="card settings-form">
+      <h2>Approvals</h2>
+      <p className="page-subtitle">
+        Set a manager PIN. Discounts above {maxPercent || 0}% require this PIN to authorize at
+        checkout.
+      </p>
+      <form onSubmit={onSubmit}>
+        <div className="field-row">
+          <label className="field">
+            <span>New Manager PIN</span>
+            <input
+              type="password"
+              inputMode="numeric"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Confirm PIN</span>
+            <input
+              type="password"
+              inputMode="numeric"
+              value={pinConfirm}
+              onChange={(e) => setPinConfirm(e.target.value)}
+            />
+          </label>
+        </div>
+        <div className="modal-actions">
+          <button type="submit" className="btn btn-primary" disabled={!pin || isSubmitting}>
+            {isSubmitting ? 'Saving…' : 'Save PIN'}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }

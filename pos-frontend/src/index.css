@@ -2202,3 +2202,285 @@ button, input, select, textarea {
   border-radius: 8px;
   background: var(--surface);
 }
+
+/* ---------- Phase 5.2: CRM favourites, loyalty, reservations, shifts, approvals ---------- */
+
+.favourites-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.favourites-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--muted-bg);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.tier-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.loyalty-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.loyalty-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.loyalty-points-balance {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.loyalty-card-lifetime {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.loyalty-progress-wrap {
+  margin-top: 10px;
+}
+
+.loyalty-progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--muted-bg);
+  overflow: hidden;
+}
+
+.loyalty-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.loyalty-progress-label {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.loyalty-adjust {
+  margin-top: 12px;
+}
+
+.loyalty-adjust-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.loyalty-adjust-form input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.loyalty-adjust-form input[type='number'] {
+  width: 100px;
+}
+
+.loyalty-txn-title {
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+.loyalty-txn-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.loyalty-txn-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--muted-bg);
+  border-radius: 8px;
+  font-size: 13px;
+  gap: 8px;
+}
+
+.loyalty-txn-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--text-muted);
+}
+
+.loyalty-txn-type {
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.loyalty-txn-type.txn-earn {
+  color: var(--success);
+}
+
+.loyalty-txn-type.txn-redeem {
+  color: var(--danger);
+}
+
+.loyalty-txn-type.txn-adjust {
+  color: var(--warning);
+}
+
+.loyalty-txn-points {
+  font-weight: 700;
+}
+
+.loyalty-txn-points.positive {
+  color: var(--success);
+}
+
+.loyalty-txn-points.negative {
+  color: var(--danger);
+}
+
+.loyalty-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.loyalty-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.loyalty-block-balance {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 4px 0 8px;
+}
+
+.loyalty-redeem-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.loyalty-redeem-row input {
+  width: 130px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.loyalty-preview {
+  font-size: 13px;
+  color: var(--success);
+  font-weight: 600;
+}
+
+.loyalty-applied {
+  color: var(--success);
+  font-weight: 600;
+}
+
+/* Banners */
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.banner-warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.banner-link {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* Chip row (filters) */
+
+.chip-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Reservation status pills (extend .status-pill) */
+
+.status-pill-booked {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.status-pill-seated {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.status-pill-no_show {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* Cash variance coloring */
+
+.variance-positive {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.variance-negative {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.variance-zero {
+  color: var(--text-muted);
+}

@@ -30,17 +30,22 @@ const ALL_PERMISSIONS = [
   'purchasing.manage',
   'branches.manage',
   'audit.view',
+  // Phase 5.2 permissions.
+  'loyalty.manage',
+  'reservations.manage',
+  'shifts.manage',
 ];
 
 // Manager keeps everything it had before (all except roles.manage), plus
 // the two new operational permissions from Phase 5.1 — audit.view (Admin
-// only) and branches.manage stay off Manager per spec.
+// only) and branches.manage stay off Manager per spec. Phase 5.2's three new
+// permissions are NOT excluded, so Manager gets all of them automatically.
 const MANAGER_ONLY_EXCLUDED = ['roles.manage', 'audit.view', 'branches.manage'];
 const MANAGER_PERMISSIONS = ALL_PERMISSIONS.filter((p) => !MANAGER_ONLY_EXCLUDED.includes(p));
 
-const CASHIER_PERMISSIONS = ['billing.create', 'billing.view', 'payments.take', 'orders.take'];
+const CASHIER_PERMISSIONS = ['billing.create', 'billing.view', 'payments.take', 'orders.take', 'shifts.manage'];
 
-const WAITER_PERMISSIONS = ['orders.take'];
+const WAITER_PERMISSIONS = ['orders.take', 'reservations.manage'];
 
 const KITCHEN_PERMISSIONS = ['kitchen.view'];
 

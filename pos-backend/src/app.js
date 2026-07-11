@@ -32,6 +32,10 @@ const auditRoutes = require('./modules/audit/audit.routes');
 const inventoryRoutes = require('./modules/inventory/inventory.routes');
 const vendorsRoutes = require('./modules/purchasing/vendors.routes');
 const purchaseOrdersRoutes = require('./modules/purchasing/purchasing.routes');
+const loyaltyRoutes = require('./modules/loyalty/loyalty.routes');
+const reservationsRoutes = require('./modules/reservations/reservations.routes');
+const shiftsRoutes = require('./modules/shifts/shifts.routes');
+const approvalsRoutes = require('./modules/approvals/approvals.routes');
 
 const app = express();
 
@@ -88,6 +92,10 @@ app.use('/api/audit', auditRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/vendors', vendorsRoutes);
 app.use('/api/purchase-orders', purchaseOrdersRoutes);
+app.use('/api/loyalty', loyaltyRoutes);
+app.use('/api/reservations', reservationsRoutes);
+app.use('/api/shifts', shiftsRoutes);
+app.use('/api/approvals', approvalsRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

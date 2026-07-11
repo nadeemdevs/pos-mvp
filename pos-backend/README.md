@@ -382,3 +382,62 @@ Endpoints (`purchasing.manage`):
 - `POST /api/purchase-orders/:id/place` — `DRAFT → PLACED`.
 - `POST /api/purchase-orders/:id/cancel` — `DRAFT`/`PLACED → CANCELLED` only (never once any line has been received).
 - `POST /api/purchase-orders/:id/receive {items: [{itemId (the PO line's own _id), qty, unitCost?}]}` — validates each line exists and `receivedQty + qty ≤ ordered qty` (`400` otherwise, naming the shortfall), creates a `PURCHASE` stock transaction per line via `applyStockChange` (`unitCost` defaults to the line's own `unitCost`, driving the weighted-`avgCost` update), then sets status to `RECEIVED` if every line is now fully received, else `PARTIALLY_RECEIVED`. Every receive call is audit-logged (`po.receive`).
+
+## Phase 5.2 — CRM favorites, loyalty, reservations, shifts, approvals
+
+### CRM favorites — `src/modules/customers/`
+
+`GET /api/customers/:id` now returns `{customer, stats, topItems}` — `topItems` is the top 5 items (by qty) across the customer's `PAID` invoices: `Invoice.aggregate([{$match:{customerId, paymentStatus:'PAID'}}, {$unwind:'$items'}, {$group: sum qty/amount by item name}, {$sort:{qty:-1}}, {$limit:5}])`. `Customer` also gained `referredBy` (validated on create/update — must exist, must not be self) for the loyalty referral flow below.
+
+### Loyalty — `src/modules/loyalty/`
+
+`Customer.loyalty {points (spendable), lifetimePoints (never decreases except manual ADJUST), tier}`, `referralRewarded`. `LoyaltyTransaction {customerId, type: 'EARN'|'REDEEM'|'ADJUST'|'REFERRAL', points (signed), refType: 'INVOICE'|'MANUAL', refId, note, balanceAfter}`. Settings gained `loyalty {pointsPer100, pointValue (₹ redeemed per point), referralBonus, tiers: [{name, minPoints}]}`, deep-merged the same way as `discounts`/`printing`.
+
+**Earning** (`src/modules/loyalty/loyalty.subscriber.js`, on `invoice.paid`): gated by `settings.features.loyalty`; no-ops if the invoice has no `customerId`. Idempotency: `Invoice.loyaltyProcessed` is atomically claimed via `findOneAndUpdate({_id, loyaltyProcessed:{$ne:true}}, {$set:{loyaltyProcessed:true}})` — identical pattern to inventory's `stockDeducted`, so a duplicate `invoice.paid` publish is a no-op. Points = `floor(invoice.total / 100 * pointsPer100)`; customer's `points`/`lifetimePoints` both increase, `tier` is recomputed as the highest configured tier whose `minPoints ≤ lifetimePoints`. Publishes `loyalty.earned` and audits `loyalty.earned`.
+
+**Referral bonus**: on the same `invoice.paid` handler, if the paying customer has `referredBy` set and `referralRewarded` is still `false`, the referrer is credited `referralBonus` points (type `REFERRAL`), tier recomputed, and `referralRewarded` is flipped — so the bonus is awarded exactly once, on the referred customer's first paid invoice, no matter how many further invoices they pay. Audited as `loyalty.referral`.
+
+**Redemption** — `POST /api/loyalty/redeem {invoiceId, points}` (`billing.create`): invoice must exist, be `PENDING`, have a `customerId`, and the customer must hold ≥ `points` (a positive integer). `discountAmount = round2(points * pointValue)`, must be `≤ invoice.total`. Applies `invoice.loyaltyPoints`/`loyaltyDiscount` and folds the discount straight into `invoice.total` (subtotal/tax/discount/discountType/discountValue are left untouched — this is a payment-time reduction, not a re-priced sale). Guards double-redemption via `invoice.loyaltyPoints` already being set (`400`). **Known gap**: if a redeemed-but-still-`PENDING` invoice is later `CANCELLED`, the spent points are not currently refunded to the customer — out of scope for this phase, flagged for a follow-up.
+
+**Manual adjust** — `POST /api/loyalty/adjust {customerId, points (signed), note}` (`loyalty.manage`): creates an `ADJUST` transaction; `lifetimePoints` only increases for positive adjustments (a negative manual adjustment reduces the spendable balance without erasing tier progress).
+
+**Reads**: `GET /api/loyalty/summary/:customerId` → `{points, lifetimePoints, tier, nextTier: {name, pointsNeeded}|null, pointValue}`; `GET /api/loyalty/transactions/:customerId?page&limit`. Both allow `billing.create` OR `loyalty.manage`.
+
+### Reservations — `src/modules/reservations/`
+
+`Reservation {reservationNumber ('RSV-YYYYMMDD-XXX'), customerId, customer:{name,phone} (snapshot), partySize, scheduledAt, tableId/tableName (preference at booking only), note, status, orderId}`.
+
+**FSM** (`reservation.machine.js`, tested in `reservation.machine.test.js`): `BOOKED → SEATED → COMPLETED`; `BOOKED → CANCELLED`; `BOOKED → NO_SHOW`.
+
+Endpoints (`reservations.manage` OR `orders.take`):
+- `POST /api/reservations {customer:{name,phone}, partySize, scheduledAt, tableId?, note}` — upserts the `Customer` by phone (same `customersService.upsertByPhone` invoices use), allocates `reservationNumber` via a daily counter.
+- `GET /api/reservations?date=YYYY-MM-DD&status=&page&limit` — `date` matches `scheduledAt` within the *local* calendar day (same `localDay` boundary logic as `reports.controller`, reimplemented here against `scheduledAt` rather than `createdAt`).
+- `PUT /:id` — `BOOKED` only.
+- `POST /:id/seat {tableId}` — table must be `FREE`; creates a `DINE_IN` order via `ordersService.createOrder` (reused as-is, waiter = the seating user), sets `reservation.orderId` and `status: SEATED`, returns `{reservation, order}`.
+- `POST /:id/cancel`, `POST /:id/no-show`.
+
+**Subscriber** (`reservations.subscriber.js`, on `order.completed`): if a `SEATED` reservation's `orderId` matches the completed order, transitions it to `COMPLETED` (FSM-validated) and audits `reservation.complete`. Every create/status-change publishes `reservation.updated` via the shared event bus, which forwards to the `floor` socket room the same way `table.updated`/`order.updated` do.
+
+### Shifts & cash drawer — `src/modules/shifts/`
+
+`Shift {shiftNumber ('SH-YYYYMMDD-XX'), status: 'OPEN'|'CLOSED', openedBy/openedAt, openingFloat, closedBy/closedAt, expectedCash, declaredCash, variance, movements:[{type:'IN'|'OUT', amount, reason, by, at}], note}`. At most one `OPEN` shift per branch — `POST /api/shifts/open` returns `409` if one already exists (checked via `Shift.findOne({status:'OPEN', branchId})`).
+
+**Close math** (`POST /api/shifts/:id/close {declaredCash, note?}`): `expectedCash = openingFloat + Σ(CASH payments, status SUCCESS, createdAt in [openedAt, now]) + Σ(IN movements) − Σ(OUT movements)`; `variance = round2(declaredCash − expectedCash)`. `GET /api/shifts/:id` and `GET /api/shifts/current` expose the same breakdown live (computed against `now` instead of `closedAt` while still `OPEN`) as `cashSummary`/`{openingFloat, cashSales, movementsIn, movementsOut, expectedCash, declaredCash, variance}`.
+
+Endpoints (`shifts.manage`): `POST /open`, `GET /current`, `POST /:id/movement {type, amount>0, reason}` (`OPEN` only), `POST /:id/close`, `GET /?page&limit` (history, newest first), `GET /:id` (detail + breakdown).
+
+**Deviation**: the Employees domain named in the phase doc is deliberately *not* a new module — it's already covered by the existing `users`/`roles` modules (Phase 1), which already handle staff accounts, roles, and permissions. No duplicate module was added.
+
+### Approvals (manager PIN override) — `src/modules/approvals/`
+
+Settings gained `approvals {pinHash (bcrypt, never returned by GET), requireForDiscountAboveMax}` — `GET /api/settings` strips `pinHash` from the response entirely (replaced with a boolean `pinSet`). `PUT /api/settings/approvals/pin {pin}` (Admin-only, enforced via `authorize('Admin')` relying on `requireAuth`'s Admin-role bypass, since no non-admin role carries a literal `'Admin'` permission string) bcrypt-hashes and stores the PIN.
+
+`POST /api/approvals/verify {pin}` (any authenticated user) compares against the stored bcrypt hash. On success, issues `{approvalToken}` — a JWT signed with the same `config.jwtSecret`, payload `{scope:'approval', by: req.user.id}`, `expiresIn: 120` (seconds). Audits `approval.granted` on success, `approval.denied` on a wrong PIN.
+
+**Discount enforcement** (`billing.controller.js`/`billing.service.js`): where a discount exceeds `settings.discounts.maxPercent`, non-Admins are rejected (`400`) as before — now, before rejecting, the controller checks the `x-approval-token` header via `approvalsService.verifyApprovalToken` (JWT verify + `scope === 'approval'`); if valid, `validateDiscount` bypasses the max-percent check (the hard subtotal+tax ceiling still always applies) and the resulting invoice is audited as `approval.used`. Invalid/absent token falls through to the existing `400`.
+
+**Deviation**: a full async approval queue (e.g. a manager approving from a different device/session while the cashier's screen waits) is out of scope for this phase — the PIN-token flow above is synchronous only, entered directly at the till.
+
+### Flags, permissions
+
+`settings.features` gained `reservations`, `shifts` (both default `false`, same UI-gate-only pattern as `loyalty`/`inventory`/etc — backend APIs stay live regardless). New permissions: `loyalty.manage`, `reservations.manage`, `shifts.manage`. Seed: Admin and Manager get all three (Manager via the existing "everything except the excluded list" pattern — these three were simply not added to `MANAGER_ONLY_EXCLUDED`); Cashier `+= shifts.manage`; Waiter `+= reservations.manage`.

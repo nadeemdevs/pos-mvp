@@ -4,11 +4,15 @@
 // any request can trigger them.
 const auditSubscriber = require('../modules/audit/audit.subscriber');
 const stockDeductionSubscriber = require('../modules/inventory/stockDeduction.subscriber');
+const loyaltySubscriber = require('../modules/loyalty/loyalty.subscriber');
+const reservationsSubscriber = require('../modules/reservations/reservations.subscriber');
 
 function init() {
   auditSubscriber.register();
   stockDeductionSubscriber.register();
-  console.log('[subscribers] registered: audit, stockDeduction');
+  loyaltySubscriber.register();
+  reservationsSubscriber.register();
+  console.log('[subscribers] registered: audit, stockDeduction, loyalty, reservations');
 }
 
 module.exports = { init };

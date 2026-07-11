@@ -1,13 +1,24 @@
+const bcrypt = require('bcryptjs');
 const Setting = require('./setting.model');
 const asyncHandler = require('../../common/utils/asyncHandler');
 const auditService = require('../audit/audit.service');
+
+// pinHash is a secret — never let it leave the server via GET /api/settings.
+function stripSecrets(settings) {
+  const obj = settings.toObject ? settings.toObject() : settings;
+  if (obj.approvals) {
+    obj.approvals = { ...obj.approvals, pinHash: undefined, pinSet: !!obj.approvals.pinHash };
+    delete obj.approvals.pinHash;
+  }
+  return obj;
+}
 
 const getSettings = asyncHandler(async (req, res) => {
   let settings = await Setting.findOne();
   if (!settings) {
     settings = await Setting.create({});
   }
-  res.json(settings);
+  res.json(stripSecrets(settings));
 });
 
 // Shallow-merge nested paymentProviders sub-objects so a PUT that only touches
@@ -82,6 +93,35 @@ function mergeFeatures(current, incoming) {
   if (incoming.crm !== undefined) merged.crm = incoming.crm;
   if (incoming.loyalty !== undefined) merged.loyalty = incoming.loyalty;
   if (incoming.analytics !== undefined) merged.analytics = incoming.analytics;
+  if (incoming.reservations !== undefined) merged.reservations = incoming.reservations;
+  if (incoming.shifts !== undefined) merged.shifts = incoming.shifts;
+
+  return merged;
+}
+
+// Deep-merge round-trip for settings.loyalty — a PUT touching only e.g.
+// { loyalty: { pointsPer100: 10 } } must not wipe out tiers/referralBonus/etc.
+function mergeLoyalty(current, incoming) {
+  const currentObj = current && current.toObject ? current.toObject() : current || {};
+  const merged = { ...currentObj };
+
+  if (incoming.pointsPer100 !== undefined) merged.pointsPer100 = incoming.pointsPer100;
+  if (incoming.pointValue !== undefined) merged.pointValue = incoming.pointValue;
+  if (incoming.referralBonus !== undefined) merged.referralBonus = incoming.referralBonus;
+  if (incoming.tiers !== undefined) merged.tiers = incoming.tiers;
+
+  return merged;
+}
+
+function mergeApprovals(current, incoming) {
+  const currentObj = current && current.toObject ? current.toObject() : current || {};
+  const merged = { ...currentObj };
+
+  // pinHash is never settable via this generic PUT — only via the dedicated
+  // PUT /api/settings/approvals/pin endpoint below.
+  if (incoming.requireForDiscountAboveMax !== undefined) {
+    merged.requireForDiscountAboveMax = incoming.requireForDiscountAboveMax;
+  }
 
   return merged;
 }
@@ -99,6 +139,8 @@ const updateSettings = asyncHandler(async (req, res) => {
     rounding,
     printing,
     features,
+    loyalty,
+    approvals,
   } = req.body;
 
   let settings = await Setting.findOne();
@@ -133,6 +175,14 @@ const updateSettings = asyncHandler(async (req, res) => {
     settings.features = mergeFeatures(settings.features, features);
   }
 
+  if (loyalty) {
+    settings.loyalty = mergeLoyalty(settings.loyalty, loyalty);
+  }
+
+  if (approvals) {
+    settings.approvals = mergeApprovals(settings.approvals, approvals);
+  }
+
   await settings.save();
 
   auditService.log({
@@ -143,7 +193,38 @@ const updateSettings = asyncHandler(async (req, res) => {
     meta: req.body,
   });
 
-  res.json(settings);
+  res.json(stripSecrets(settings));
 });
 
-module.exports = { getSettings, updateSettings };
+// Admin-only. Sets/rotates the manager-override PIN used by POST
+// /api/approvals/verify. The raw PIN is never stored or returned — only its
+// bcrypt hash lives in settings.approvals.pinHash.
+const setApprovalPin = asyncHandler(async (req, res) => {
+  const { pin } = req.body;
+
+  if (!pin || String(pin).trim().length < 4) {
+    const err = new Error('pin is required and must be at least 4 characters');
+    err.status = 400;
+    throw err;
+  }
+
+  let settings = await Setting.findOne();
+  if (!settings) {
+    settings = await Setting.create({});
+  }
+
+  const pinHash = await bcrypt.hash(String(pin), 10);
+  settings.approvals = { ...(settings.approvals ? settings.approvals.toObject() : {}), pinHash };
+  await settings.save();
+
+  auditService.log({
+    req,
+    action: 'approvals.pin.set',
+    entity: 'Setting',
+    entityId: settings._id,
+  });
+
+  res.json({ message: 'Approval PIN updated' });
+});
+
+module.exports = { getSettings, updateSettings, setApprovalPin };

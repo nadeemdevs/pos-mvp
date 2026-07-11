@@ -24,6 +24,9 @@ const ALL_PERMISSIONS = [
   'purchasing.manage',
   'branches.manage',
   'audit.view',
+  'loyalty.manage',
+  'reservations.manage',
+  'shifts.manage',
 ]
 
 const PERMISSION_LABELS = {
@@ -34,6 +37,9 @@ const PERMISSION_LABELS = {
   'purchasing.manage': 'Manage Purchasing (vendors, purchase orders)',
   'branches.manage': 'Manage Branches',
   'audit.view': 'View Audit Log',
+  'loyalty.manage': 'Manage Loyalty (adjust customer points)',
+  'reservations.manage': 'Manage Reservations (book, seat, cancel)',
+  'shifts.manage': 'Manage Shifts (open/close, cash reconciliation)',
 }
 
 const emptyForm = { name: '', permissions: [] }

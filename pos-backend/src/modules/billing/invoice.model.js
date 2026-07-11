@@ -53,6 +53,13 @@ const invoiceSchema = new mongoose.Schema(
     // subscriber — only relevant for Mode 1 (counter sale) invoices, i.e.
     // orderId unset. See src/modules/inventory/stockDeduction.subscriber.js.
     stockDeducted: { type: Boolean, default: false },
+    // Idempotency guard for the loyalty-earning subscriber (Phase 5.2) — same
+    // atomic-claim pattern as stockDeducted. See loyalty.service.processInvoicePaid.
+    loyaltyProcessed: { type: Boolean, default: false },
+    // Set by POST /api/loyalty/redeem — points spent against this invoice and
+    // the resulting discount amount already folded into `total` above.
+    loyaltyPoints: { type: Number, default: 0 },
+    loyaltyDiscount: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

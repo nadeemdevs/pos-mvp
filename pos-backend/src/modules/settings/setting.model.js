@@ -79,6 +79,44 @@ const featuresSchema = new mongoose.Schema(
     crm: { type: Boolean, default: true },
     loyalty: { type: Boolean, default: false },
     analytics: { type: Boolean, default: false },
+    // Phase 5.2 feature gates.
+    reservations: { type: Boolean, default: false },
+    shifts: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const loyaltyTierSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    minPoints: { type: Number, required: true, default: 0 },
+  },
+  { _id: false }
+);
+
+const loyaltySettingsSchema = new mongoose.Schema(
+  {
+    pointsPer100: { type: Number, default: 5 },
+    // Rupees redeemed per loyalty point.
+    pointValue: { type: Number, default: 0.25 },
+    referralBonus: { type: Number, default: 100 },
+    tiers: {
+      type: [loyaltyTierSchema],
+      default: () => [
+        { name: 'Bronze', minPoints: 0 },
+        { name: 'Silver', minPoints: 500 },
+        { name: 'Gold', minPoints: 2000 },
+      ],
+    },
+  },
+  { _id: false }
+);
+
+const approvalsSettingsSchema = new mongoose.Schema(
+  {
+    // bcrypt hash of the manager-override PIN. Never returned by GET /api/settings.
+    pinHash: { type: String, default: '' },
+    requireForDiscountAboveMax: { type: Boolean, default: true },
   },
   { _id: false }
 );
@@ -96,6 +134,8 @@ const settingSchema = new mongoose.Schema(
     rounding: { type: roundingSchema, default: () => ({}) },
     printing: { type: printingSchema, default: () => ({}) },
     features: { type: featuresSchema, default: () => ({}) },
+    loyalty: { type: loyaltySettingsSchema, default: () => ({}) },
+    approvals: { type: approvalsSettingsSchema, default: () => ({}) },
   },
   { timestamps: true }
 );

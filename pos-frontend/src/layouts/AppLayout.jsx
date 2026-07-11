@@ -9,6 +9,13 @@ const NAV_LINKS = [
   { to: '/billing', label: 'Billing', permission: 'billing.create' },
   { to: '/tables', label: 'Tables', permissions: ['orders.take', 'tables.manage'], dineIn: true },
   { to: '/kitchen', label: 'Kitchen', permission: 'kitchen.view', dineIn: true },
+  {
+    to: '/reservations',
+    label: 'Reservations',
+    permissions: ['reservations.manage', 'orders.take'],
+    feature: 'reservations',
+  },
+  { to: '/shifts', label: 'Shifts', permission: 'shifts.manage', feature: 'shifts' },
   { to: '/customers', label: 'Customers', permission: 'customers.manage' },
   { to: '/menu', label: 'Menu', permission: 'menu.manage' },
   { to: '/categories', label: 'Categories', permission: 'menu.manage' },
