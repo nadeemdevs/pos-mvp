@@ -1,4 +1,5 @@
 const asyncHandler = require('../../common/utils/asyncHandler');
+const requestContext = require('../../common/requestContext');
 const Invoice = require('../billing/invoice.model');
 const Payment = require('./payment.model');
 const factory = require('./PaymentProviderFactory');
@@ -202,41 +203,52 @@ const callback = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: `Unknown provider: ${providerKey}` });
   }
 
-  const config = await getPaymentConfig();
-
-  let verified;
-  try {
-    verified = providerAdapter.verifyCallback(req, config);
-  } catch (err) {
-    if (err.message === 'Not implemented') {
-      return res.status(501).json({ message: `${providerKey} does not support callbacks` });
-    }
-    throw err;
-  }
-
-  if (!verified) {
-    return res.status(401).json({ message: 'Invalid callback signature' });
-  }
-
   const reference =
     req.body.reference || req.body.transactionId || req.body.PlutusTransactionReferenceID || req.body.txnRef;
   if (!reference) {
     return res.status(400).json({ message: 'Callback payload is missing a transaction reference' });
   }
 
-  const payment = await Payment.findOne({ reference });
+  // Phase 6.1 — this is an unauthenticated vendor webhook, so the ambient
+  // context is the 'default' fallback. Resolve the payment ACROSS tenants by
+  // its reference, then run everything (per-tenant provider secrets from
+  // settings, signature verification, status application and its downstream
+  // subscribers/emits) inside that payment's own tenant/branch context.
+  const payment = await Payment.findOne({ reference }).setOptions({ skipTenantScope: true });
   if (!payment) return res.status(404).json({ message: 'Payment not found for reference' });
 
-  // Re-derive the authoritative status from the provider rather than trusting the
-  // webhook body directly — it's just a "something changed, go check" signal.
-  const result = await providerAdapter.getStatus(payment, config);
-  const updated = await applyStatus(payment, result);
+  await requestContext.run(
+    { tenantId: payment.tenantId || 'default', branchId: payment.branchId || 'main' },
+    async () => {
+      const config = await getPaymentConfig();
 
-  if (updated && TERMINAL_STATUSES.includes(updated.status)) {
-    poller.unregister(updated._id);
-  }
+      let verified;
+      try {
+        verified = providerAdapter.verifyCallback(req, config);
+      } catch (err) {
+        if (err.message === 'Not implemented') {
+          return res.status(501).json({ message: `${providerKey} does not support callbacks` });
+        }
+        throw err;
+      }
 
-  res.json({ message: 'Callback processed', payment: updated });
+      if (!verified) {
+        return res.status(401).json({ message: 'Invalid callback signature' });
+      }
+
+      // Re-derive the authoritative status from the provider rather than
+      // trusting the webhook body directly — it's just a "something changed,
+      // go check" signal.
+      const result = await providerAdapter.getStatus(payment, config);
+      const updated = await applyStatus(payment, result);
+
+      if (updated && TERMINAL_STATUSES.includes(updated.status)) {
+        poller.unregister(updated._id);
+      }
+
+      res.json({ message: 'Callback processed', payment: updated });
+    }
+  );
 });
 
 module.exports = { manual, initiate, getOne, cancel, callback };

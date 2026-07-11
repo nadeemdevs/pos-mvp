@@ -1,7 +1,7 @@
 const Invoice = require('../billing/invoice.model');
 const Payment = require('./payment.model');
 const Setting = require('../settings/setting.model');
-const { getIO } = require('../../sockets');
+const { emitTo } = require('../../sockets');
 const ordersService = require('../orders/orders.service');
 const eventBus = require('../../common/eventBus');
 const auditService = require('../audit/audit.service');
@@ -9,12 +9,10 @@ const auditService = require('../audit/audit.service');
 const TERMINAL_STATUSES = ['SUCCESS', 'FAILED', 'CANCELLED', 'TIMEOUT'];
 const ACTIVE_STATUSES = ['INITIATED', 'PROCESSING'];
 
+// Phase 6.1 — payment events go to the caller's tenant 'floor' room instead
+// of a global broadcast (emitTo appends the tenant from the request context).
 function emit(event, payload) {
-  try {
-    getIO().emit(event, payload);
-  } catch (err) {
-    // socket not initialized (e.g. in tests/scripts) — ignore
-  }
+  emitTo('floor', event, payload);
 }
 
 async function getPaymentConfig() {

@@ -3,6 +3,7 @@
 // stops itself once the payment reaches a terminal state or the 120s ceiling.
 const Payment = require('./payment.model');
 const factory = require('./PaymentProviderFactory');
+const requestContext = require('../../common/requestContext');
 const { applyStatus, getPaymentConfig, TERMINAL_STATUSES } = require('./payments.service');
 
 const POLL_INTERVAL_MS = 3000;
@@ -38,33 +39,43 @@ async function poll(id) {
   const entry = timers.get(id);
   if (!entry) return;
 
+  // setInterval callbacks have NO AsyncLocalStorage request context — fetch
+  // the payment unscoped, then run everything downstream (per-tenant
+  // settings lookup, applyStatus -> invoice update -> invoice.paid
+  // subscribers like loyalty/stock deduction, socket emits) inside the
+  // payment's own tenant/branch context. (Phase 6.1)
   const payment = await Payment.findById(id);
   if (!payment || !ACTIVE_STATUSES.includes(payment.status)) {
     unregister(id);
     return;
   }
 
-  const elapsed = Date.now() - entry.startedAt;
-  const config = await getPaymentConfig();
-  const provider = factory.get(payment.provider);
+  await requestContext.run(
+    { tenantId: payment.tenantId || 'default', branchId: payment.branchId || 'main' },
+    async () => {
+      const elapsed = Date.now() - entry.startedAt;
+      const config = await getPaymentConfig();
+      const provider = factory.get(payment.provider);
 
-  if (elapsed >= TIMEOUT_MS) {
-    unregister(id);
-    try {
-      await provider.cancelPayment(payment, config);
-    } catch (err) {
-      console.error('[poller] best-effort cancel failed for payment', id, err.message);
+      if (elapsed >= TIMEOUT_MS) {
+        unregister(id);
+        try {
+          await provider.cancelPayment(payment, config);
+        } catch (err) {
+          console.error('[poller] best-effort cancel failed for payment', id, err.message);
+        }
+        await applyStatus(payment, { status: 'TIMEOUT', rawResponse: { reason: 'poller-timeout' } });
+        return;
+      }
+
+      const result = await provider.getStatus(payment, config);
+      const updated = await applyStatus(payment, result);
+
+      if (updated && TERMINAL_STATUSES.includes(updated.status)) {
+        unregister(id);
+      }
     }
-    await applyStatus(payment, { status: 'TIMEOUT', rawResponse: { reason: 'poller-timeout' } });
-    return;
-  }
-
-  const result = await provider.getStatus(payment, config);
-  const updated = await applyStatus(payment, result);
-
-  if (updated && TERMINAL_STATUSES.includes(updated.status)) {
-    unregister(id);
-  }
+  );
 }
 
 /**

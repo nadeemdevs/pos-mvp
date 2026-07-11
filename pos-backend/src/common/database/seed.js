@@ -6,50 +6,12 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const config = require('../../config');
-const Role = require('../../modules/roles/role.model');
-const User = require('../../modules/users/user.model');
+const requestContext = require('../requestContext');
+const { provisionTenant } = require('./provisionTenant');
+const Tenant = require('../../modules/tenants/tenant.model');
 const Category = require('../../modules/menu/category.model');
 const MenuItem = require('../../modules/menu/menuItem.model');
 const Setting = require('../../modules/settings/setting.model');
-const Branch = require('../../modules/branches/branch.model');
-
-const ALL_PERMISSIONS = [
-  'billing.create',
-  'billing.view',
-  'menu.manage',
-  'reports.view',
-  'users.manage',
-  'roles.manage',
-  'settings.manage',
-  'payments.take',
-  'customers.manage',
-  'tables.manage',
-  'orders.take',
-  'kitchen.view',
-  'inventory.manage',
-  'purchasing.manage',
-  'branches.manage',
-  'audit.view',
-  // Phase 5.2 permissions.
-  'loyalty.manage',
-  'reservations.manage',
-  'shifts.manage',
-  // Phase 5.3 permissions.
-  'analytics.view',
-];
-
-// Manager keeps everything it had before (all except roles.manage), plus
-// the two new operational permissions from Phase 5.1 — audit.view (Admin
-// only) and branches.manage stay off Manager per spec. Phase 5.2's three new
-// permissions are NOT excluded, so Manager gets all of them automatically.
-const MANAGER_ONLY_EXCLUDED = ['roles.manage', 'audit.view', 'branches.manage'];
-const MANAGER_PERMISSIONS = ALL_PERMISSIONS.filter((p) => !MANAGER_ONLY_EXCLUDED.includes(p));
-
-const CASHIER_PERMISSIONS = ['billing.create', 'billing.view', 'payments.take', 'orders.take', 'shifts.manage'];
-
-const WAITER_PERMISSIONS = ['orders.take', 'reservations.manage'];
-
-const KITCHEN_PERMISSIONS = ['kitchen.view'];
 
 const CATEGORIES = [
   {
@@ -93,114 +55,70 @@ const CATEGORIES = [
   },
 ];
 
-async function seedRoles() {
-  const roleDefs = [
-    { name: 'Admin', permissions: ALL_PERMISSIONS },
-    { name: 'Manager', permissions: MANAGER_PERMISSIONS },
-    { name: 'Cashier', permissions: CASHIER_PERMISSIONS },
-    { name: 'Waiter', permissions: WAITER_PERMISSIONS },
-    { name: 'Kitchen', permissions: KITCHEN_PERMISSIONS },
-  ];
-
-  const roles = {};
-  for (const def of roleDefs) {
-    const role = await Role.findOneAndUpdate(
-      { name: def.name },
-      { name: def.name, permissions: def.permissions },
-      { new: true, upsert: true }
-    );
-    roles[def.name] = role;
-  }
-  return roles;
-}
-
-async function seedAdminUser(adminRole) {
-  const email = 'admin@pos.local';
-  const passwordHash = await bcrypt.hash('admin123', 10);
-
-  const user = await User.findOneAndUpdate(
-    { email },
-    {
-      name: 'Admin',
-      email,
-      passwordHash,
-      role: adminRole._id,
-      active: true,
-    },
-    { new: true, upsert: true }
-  );
-
-  return user;
-}
-
+// Demo menu — seeded only for the 'default' tenant (new tenants start with
+// an empty menu). Runs inside the default tenant's request context so the
+// upsert lookups stay scoped and new docs get stamped.
 async function seedMenu() {
-  for (const cat of CATEGORIES) {
-    const category = await Category.findOneAndUpdate(
-      { name: cat.name },
-      { name: cat.name, sortOrder: cat.sortOrder },
-      { new: true, upsert: true }
-    );
-
-    for (const item of cat.items) {
-      await MenuItem.findOneAndUpdate(
-        { name: item.name, categoryId: category._id },
-        {
-          categoryId: category._id,
-          name: item.name,
-          price: item.price,
-          taxRate: 5,
-          active: true,
-        },
+  return requestContext.run({ tenantId: 'default', branchId: 'main' }, async () => {
+    for (const cat of CATEGORIES) {
+      const category = await Category.findOneAndUpdate(
+        { name: cat.name },
+        { name: cat.name, sortOrder: cat.sortOrder },
         { new: true, upsert: true }
       );
+
+      for (const item of cat.items) {
+        await MenuItem.findOneAndUpdate(
+          { name: item.name, categoryId: category._id },
+          {
+            categoryId: category._id,
+            name: item.name,
+            price: item.price,
+            taxRate: 5,
+            active: true,
+          },
+          { new: true, upsert: true }
+        );
+      }
     }
-  }
+  });
 }
 
-async function seedSettings() {
-  const existing = await Setting.findOne();
-  if (!existing) {
-    await Setting.create({
-      restaurantName: 'Malabar Cafe',
-      address: '',
-      phone: '',
-      taxRate: 5,
-      currency: 'INR',
-      receiptFooter: 'Thank you for visiting!',
-      paymentProviders: {
-        enabled: ['MOCK'],
-        mock: { delayMs: 5000, outcome: 'SUCCESS' },
-      },
-    });
-  }
-}
+// Ensure the platform-level Tenant record for the pre-existing 'default'
+// tenant. Name comes from the existing settings doc when present.
+async function ensureDefaultTenant() {
+  const existing = await Tenant.findOne({ slug: 'default' });
+  if (existing) return existing;
 
-async function seedBranch() {
-  return Branch.findOneAndUpdate(
-    { code: 'main' },
-    { code: 'main', name: 'Main Branch', active: true },
-    { new: true, upsert: true }
+  const settings = await requestContext.run({ tenantId: 'default', branchId: 'main' }, () =>
+    Setting.findOne()
   );
+
+  return Tenant.create({
+    name: (settings && settings.restaurantName) || 'Main Restaurant',
+    slug: 'default',
+    ownerEmail: 'admin@pos.local',
+    status: 'ACTIVE',
+  });
 }
 
 async function run() {
   await mongoose.connect(config.mongoUri);
   console.log(`[seed] connected: ${config.mongoUri}`);
 
-  const roles = await seedRoles();
-  console.log('[seed] roles upserted:', Object.keys(roles).join(', '));
+  const tenant = await ensureDefaultTenant();
+  console.log(`[seed] tenant ensured: ${tenant.slug} (${tenant.name})`);
 
-  await seedAdminUser(roles.Admin);
-  console.log('[seed] admin user upserted: admin@pos.local / admin123');
+  const passwordHash = await bcrypt.hash('admin123', 10);
+  await provisionTenant({
+    tenantId: 'default',
+    restaurantName: tenant.name,
+    owner: { name: 'Admin', email: 'admin@pos.local', passwordHash },
+  });
+  console.log('[seed] roles, settings, branch, admin user upserted (admin@pos.local / admin123)');
 
   await seedMenu();
   console.log('[seed] categories and menu items upserted');
-
-  await seedSettings();
-  console.log('[seed] settings ensured');
-
-  await seedBranch();
-  console.log('[seed] branch upserted: main');
 
   console.log('[seed] done');
   await mongoose.disconnect();

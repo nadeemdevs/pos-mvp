@@ -1,8 +1,10 @@
 import { createBrowserRouter } from 'react-router-dom'
 import ProtectedRoute from '../components/ProtectedRoute'
+import RootRoute from '../components/RootRoute'
 import DashboardRedirect from '../components/DashboardRedirect'
 import AppLayout from '../layouts/AppLayout'
 import LoginPage from '../pages/LoginPage'
+import SignupPage from '../pages/SignupPage'
 import BillingPage from '../pages/BillingPage'
 import TablesPage from '../pages/TablesPage'
 import OrderPage from '../pages/OrderPage'
@@ -27,6 +29,28 @@ export const router = createBrowserRouter([
     path: '/login',
     element: <LoginPage />,
   },
+  {
+    path: '/signup',
+    element: <SignupPage />,
+  },
+  // Public landing / index route: logged-out visitors see the marketing
+  // LandingPage; logged-in users fall through (via RootRoute's <Outlet/>) to
+  // the protected AppLayout dashboard below.
+  {
+    path: '/',
+    element: <RootRoute />,
+    children: [
+      {
+        element: <ProtectedRoute />,
+        children: [
+          {
+            element: <AppLayout />,
+            children: [{ index: true, element: <DashboardRedirect /> }],
+          },
+        ],
+      },
+    ],
+  },
   // Public QR-ordering surface — deliberately OUTSIDE ProtectedRoute/AppLayout.
   // Guests scan a table QR code and land here with no auth, no sidebar, and
   // must never be redirected to /login (see api.js response interceptor).
@@ -40,7 +64,6 @@ export const router = createBrowserRouter([
       {
         element: <AppLayout />,
         children: [
-          { path: '/', element: <DashboardRedirect /> },
           {
             element: <ProtectedRoute permission="billing.create" />,
             children: [{ path: '/billing', element: <BillingPage /> }],

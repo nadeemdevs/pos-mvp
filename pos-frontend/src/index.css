@@ -601,6 +601,147 @@ button, input, select, textarea {
   font-size: 14px;
 }
 
+.login-alt {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.login-alt a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.login-alt a:hover {
+  text-decoration: underline;
+}
+
+.field-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.form-error {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+/* ---------- Landing (public coming-soon) ---------- */
+
+.landing-page {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(135deg, #1c2333, #171a21);
+  color: #fff;
+}
+
+.landing-hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.landing-wordmark {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #fff;
+  margin-bottom: 28px;
+}
+
+.landing-wordmark span {
+  color: var(--accent);
+}
+
+.landing-headline {
+  font-size: 40px;
+  line-height: 1.15;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 16px;
+  max-width: 640px;
+}
+
+.landing-subtext {
+  font-size: 17px;
+  color: var(--sidebar-text);
+  max-width: 540px;
+  margin: 0 0 32px;
+}
+
+.landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 56px;
+}
+
+.landing-btn {
+  padding: 12px 22px;
+  font-size: 15px;
+  text-decoration: none;
+}
+
+.landing-features {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  width: 100%;
+}
+
+.landing-feature-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  padding: 20px;
+  text-align: left;
+}
+
+.landing-feature-card h3 {
+  color: #fff;
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.landing-feature-card p {
+  color: var(--sidebar-text);
+  font-size: 13px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.landing-footer {
+  text-align: center;
+  padding: 24px;
+  font-size: 13px;
+  color: var(--sidebar-text);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 720px) {
+  .landing-headline {
+    font-size: 30px;
+  }
+  .landing-features {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---------- Billing page ---------- */
 
 .billing-page {

@@ -166,4 +166,9 @@ const settingSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Phase 6.1 — exactly one settings doc per tenant (the old "singleton
+// findOne()" pattern becomes per-tenant automatically via the tenant-scoping
+// query hooks). Matches migrateTenantIndexes.js.
+settingSchema.index({ tenantId: 1 }, { unique: true });
+
 module.exports = mongoose.model('Setting', settingSchema);

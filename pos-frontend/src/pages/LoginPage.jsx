@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { login as loginApi } from '../services/authService'
 import { useAuthStore } from '../store/authStore'
@@ -66,6 +66,9 @@ export default function LoginPage() {
         >
           {mutation.isPending ? 'Signing in…' : 'Sign In'}
         </button>
+        <p className="login-alt">
+          New here? <Link to="/signup">Create your restaurant</Link>
+        </p>
       </form>
     </div>
   )

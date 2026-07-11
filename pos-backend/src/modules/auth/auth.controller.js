@@ -17,9 +17,29 @@ const login = asyncHandler(async (req, res) => {
     entity: 'User',
     entityId: result.user.id,
     meta: { email },
+    tenantId: result.user.tenantId,
   });
 
   res.json(result);
+});
+
+// PUBLIC tenant signup (rate-limited in auth.routes.js). Responds exactly
+// like login ({token, user}) so the client auto-logs-in.
+const register = asyncHandler(async (req, res) => {
+  const { restaurantName, ownerName, email, password } = req.body;
+
+  const { tenant, token, user } = await authService.register({ restaurantName, ownerName, email, password });
+
+  auditService.log({
+    user,
+    action: 'tenant.registered',
+    entity: 'Tenant',
+    entityId: tenant._id,
+    meta: { slug: tenant.slug, name: tenant.name, ownerEmail: tenant.ownerEmail },
+    tenantId: tenant.slug,
+  });
+
+  res.status(201).json({ token, user });
 });
 
 const me = asyncHandler(async (req, res) => {
@@ -27,4 +47,4 @@ const me = asyncHandler(async (req, res) => {
   res.json(user);
 });
 
-module.exports = { login, me };
+module.exports = { login, register, me };

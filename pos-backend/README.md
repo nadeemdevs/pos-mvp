@@ -60,13 +60,14 @@ npm test   # node:test — FSM transitions + split-billing math, no DB required
 
 ## Auth
 
-All endpoints except `POST /api/auth/login` require `Authorization: Bearer <token>`.
+All endpoints except `POST /api/auth/login`, `POST /api/auth/register`, `/api/public/*`, and the payment/delivery webhook callbacks require `Authorization: Bearer <token>`. The JWT carries the user's `tenantId` (Phase 6.1) — see "True multi-tenancy" below.
 
 ## API
 
 ### Auth
-- `POST /api/auth/login` `{email, password}` → `{token, user}`
-- `GET /api/auth/me` → current user
+- `POST /api/auth/login` `{email, password}` → `{token, user}` (403 if the user's tenant is SUSPENDED)
+- `POST /api/auth/register` `{restaurantName, ownerName, email, password}` → `{token, user}` — public tenant signup (Phase 6.1)
+- `GET /api/auth/me` → current user (includes `tenantId`)
 
 ### Categories
 - `GET /api/categories`
@@ -522,3 +523,46 @@ Phase 5.1 added `tenantId`/`branchId` fields to every schema but didn't enforce 
 ### Flags, permissions (5.3)
 
 `settings.features.onlineOrdering` (default `false`) — gates `/api/public/*` (see above). New permission `analytics.view` — seed: Admin and Manager (via the same "everything except the excluded list" pattern; not added to `MANAGER_ONLY_EXCLUDED`).
+
+## Phase 6.1: True multi-tenancy
+
+Every restaurant (tenant) now has fully isolated data, its own signup, and its own socket rooms. A tenant's **slug doubles as its `tenantId`** value on documents (human-readable; the pre-existing production data is tenant `default`).
+
+### Tenant registry & signup
+
+- `src/modules/tenants/tenant.model.js` — `Tenant {name, slug (unique), ownerEmail, status: ACTIVE|SUSPENDED}`. The ONE model that is **not** tenant-scoped (`{tenantScoped: false}` schema option — no `tenantId`/`branchId` fields, no scoping hooks).
+- `POST /api/auth/register` (public, rate-limited 10/hr/IP) `{restaurantName, ownerName, email, password (≥8)}` → creates the Tenant (slug generated from the name, random 4-hex suffix on collision — `src/modules/tenants/slug.js`), provisions its baseline docs, and responds exactly like login (`{token, user}`) so the client auto-logs-in. Email is unique **globally** across all tenants (409 `An account with this email already exists`). Audited as `tenant.registered`.
+- **Provisioning** — `src/common/database/provisionTenant.js` `provisionTenant({tenantId, restaurantName, owner})`: creates, for that tenant, the 5 roles + permission sets, the settings doc, the `main` branch and the owner user as Admin. Upsert-safe; `npm run seed` now just ensures the `default` Tenant record and calls this for `'default'` (plus the demo menu) — a no-op on live data.
+- **Suspension**: set `Tenant.status = 'SUSPENDED'` → login, public QR ordering and delivery webhooks all respond `403 This restaurant account is suspended`.
+
+### Tenant scoping (the isolation mechanism)
+
+`tenantPlugin.js`'s model-compilation hook now applies **tenant scoping to every model** (the exact same mechanics as the opt-in `branchScoped` hooks): every find-family query/`countDocuments` gets `tenantId: ctx.tenantId` injected (unless the filter already names one), every `aggregate()` gets a `$match` prepended, and new docs are stamped on save (an explicitly-set `tenantId` wins over the ambient context). The escape hatch is `.setOptions({skipTenantScope: true})` — used only where a lookup is legitimately cross-tenant:
+- auth login/register user-by-email (email is global),
+- public QR-token → table resolution and public order-status → order resolution,
+- payment vendor callbacks resolving a payment by reference.
+
+**Context plumbing**: the JWT now carries `tenantId`. `requireAuth` re-enters `requestContext.run` with the token's tenant (and re-resolves `x-branch-id` within that tenant — branch-code cache is per-tenant now), so every authenticated request is scoped no matter which router it hits. Unauthenticated surfaces resolve their tenant explicitly:
+- **QR/public** (`/api/public/*`): the table's `qrToken` (globally unique) resolves the tenant; the rest of the request runs in that tenant's context. `GET /api/public/menu` now **requires** `?token=<qrToken>`. Gated per tenant on `settings.features.onlineOrdering` and tenant status.
+- **Delivery webhooks**: canonical path is now `POST /api/delivery/webhook/:tenantSlug/:partner` (per-tenant settings/secrets); the old `/webhook/:partner` path still works as an alias for `default`.
+- **Payment callbacks & the poller**: resolve the payment first, then run processing inside `requestContext.run({tenantId, branchId})` of that payment — same for `poller.js` intervals (which have no ambient request context).
+
+**Sockets**: rooms are `floor:<tenantId>` / `kitchen:<tenantId>`; clients join their JWT's tenant rooms, and `emitTo('floor'|'kitchen', ...)` appends the caller's tenant from the request context automatically — no emit call site changed.
+
+**Counters**: `branchCounter.js` bakes the tenant into counter keys/number prefixes the same way as branches: tenant `default` is byte-for-byte backward compatible (`INV-20260711-0001`); any other tenant gets `invoice-20260711-<slug>` keys and `INV-<SLUG>-20260711-0001` numbers, so the still-global unique number indexes can't collide across tenants.
+
+### Index migration
+
+```bash
+npm run migrate:tenant-indexes   # idempotent — checks listIndexes first
+```
+Converts single-tenant uniques to per-tenant compounds (also declared on the schemas so fresh installs match): `roles (tenantId,name)`, `customers (tenantId,phone)`, `tables (tenantId,branchId,name)`, `branches (tenantId,code)`, `categories (tenantId,name)`, `settings (tenantId)` unique (one settings doc per tenant). `users.email` stays **globally** unique; `inventoryitems` already had its compound; `menuitems` has no unique name/sku index.
+
+### Verification tooling
+
+```bash
+npm run sweep:isolation            # scripts/tenantIsolationSweep.js
+npm run delete:tenant -- <slug>    # scripts/deleteTenant.js (refuses 'default')
+```
+- The **isolation sweep** logs in as both the default admin and a second tenant's owner (registering `TEST Bistro` via `/api/auth/register` if needed), hits every authenticated GET list endpoint with both tokens and asserts zero shared document `_id`s (plus: distinct settings docs, exactly the 5 provisioned roles / 1 branch / 1 user for the fresh tenant). Prints PASS/FAIL per route and exits non-zero on any leak.
+- **deleteTenant** hard-deletes a tenant and every document carrying its `tenantId` across all collections (plus its tenant-suffixed counters and the Tenant record itself).

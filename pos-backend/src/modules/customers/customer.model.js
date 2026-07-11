@@ -14,7 +14,7 @@ const loyaltySchema = new mongoose.Schema(
 const customerSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    phone: { type: String, required: true, trim: true, unique: true },
+    phone: { type: String, required: true, trim: true },
     email: { type: String, trim: true },
     notes: { type: String },
     loyalty: { type: loyaltySchema, default: () => ({}) },
@@ -26,5 +26,10 @@ const customerSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Phase 6.1 — phone numbers are unique per tenant, not globally (the same
+// customer can exist at two different restaurants). Matches
+// migrateTenantIndexes.js.
+customerSchema.index({ tenantId: 1, phone: 1 }, { unique: true });
 
 module.exports = mongoose.model('Customer', customerSchema);

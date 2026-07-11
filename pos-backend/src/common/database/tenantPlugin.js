@@ -105,10 +105,93 @@ function applyBranchScoping(schema) {
 // (order items, settings.features, ...), stamping tenant fields into every
 // nested object. Instead, hook model compilation so only top-level
 // collection schemas get the fields.
+// Phase 6.1 tenant-scoping hardening — the tenant analogue of
+// applyBranchScoping above, but applied to EVERY model by default. The only
+// opt-out is `new mongoose.Schema({...}, { tenantScoped: false })`, reserved
+// for platform-level models (the Tenant registry itself). Mechanics mirror
+// the branch hooks exactly:
+//   - no active request context -> no scoping (background scripts/migrations),
+//   - an explicit tenantId in the filter always wins,
+//   - `{ skipTenantScope: true }` as a query/aggregate option is the one
+//     sanctioned escape hatch (auth's global-email user lookup at login,
+//     public QR-token resolution, platform tooling).
+// New documents get tenantId stamped from the context on save.
+function applyTenantScoping(schema) {
+  function currentTenantId() {
+    const ctx = requestContext.get();
+    return ctx && ctx.tenantId ? ctx.tenantId : null;
+  }
+
+  const findMiddlewares = [
+    'find',
+    'findOne',
+    'findOneAndUpdate',
+    'findOneAndDelete',
+    'findOneAndRemove',
+    'update',
+    'updateOne',
+    'updateMany',
+    'deleteOne',
+    'deleteMany',
+    'countDocuments',
+  ];
+
+  for (const method of findMiddlewares) {
+    schema.pre(method, function tenantScopeQuery() {
+      if (this.getOptions && this.getOptions().skipTenantScope) return;
+
+      const tenantId = currentTenantId();
+      if (!tenantId) return;
+
+      const filter = this.getFilter ? this.getFilter() : this._conditions;
+      if (filter && filter.tenantId === undefined) {
+        filter.tenantId = tenantId;
+      }
+    });
+  }
+
+  schema.pre('aggregate', function tenantScopeAggregate() {
+    const opts = (this.options || {});
+    if (opts.skipTenantScope) return;
+
+    const tenantId = currentTenantId();
+    if (!tenantId) return;
+
+    const pipeline = this.pipeline();
+    const alreadyScoped = pipeline.some(
+      (stage) => stage && stage.$match && stage.$match.tenantId !== undefined
+    );
+    if (!alreadyScoped) {
+      pipeline.unshift({ $match: { tenantId } });
+    }
+  });
+
+  schema.pre('save', function tenantScopeSave() {
+    if (!this.isNew) return;
+
+    // An explicitly-set tenantId wins over the ambient context — audit logs
+    // and cross-context provisioning pass it deliberately (e.g. the
+    // 'tenant.registered' audit row written from the 'default' fallback
+    // context of the public /register endpoint).
+    if (this.isModified('tenantId')) return;
+
+    const tenantId = currentTenantId();
+    if (!tenantId) return;
+
+    this.tenantId = tenantId;
+  });
+}
+
 const originalModel = mongoose.model.bind(mongoose);
 mongoose.model = function (name, schema, ...rest) {
   if (schema instanceof mongoose.Schema) {
+    // Platform-level models (Tenant registry) opt out of tenancy entirely:
+    // no tenantId/branchId fields, no scoping hooks.
+    if (schema.options && schema.options.tenantScoped === false) {
+      return originalModel(name, schema, ...rest);
+    }
     tenantPlugin(schema);
+    applyTenantScoping(schema);
     if (schema.options && schema.options.branchScoped === true) {
       applyBranchScoping(schema);
     }

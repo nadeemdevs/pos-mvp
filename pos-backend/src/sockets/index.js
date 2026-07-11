@@ -1,8 +1,23 @@
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const config = require('../config');
+const requestContext = require('../common/requestContext');
 
 let io = null;
+
+// Phase 6.1 — rooms are tenant-scoped: `floor:<tenantId>` / `kitchen:<tenantId>`.
+// Clients join their own tenant's rooms (tenantId comes from the JWT), and
+// every emitTo() call site publishes to the caller's tenant rooms (derived
+// from the AsyncLocalStorage request context; fallback 'default' for
+// pre-6.1 tokens / contexts).
+function tenantRoom(room, tenantId) {
+  return `${room}:${tenantId || 'default'}`;
+}
+
+function currentTenantId() {
+  const ctx = requestContext.get();
+  return ctx && ctx.tenantId ? ctx.tenantId : 'default';
+}
 
 function initSocket(server) {
   io = new Server(server, {
@@ -25,6 +40,7 @@ function initSocket(server) {
         name: payload.name,
         role: payload.role,
         permissions: payload.permissions || [],
+        tenantId: payload.tenantId || 'default',
       };
       next();
     } catch (err) {
@@ -34,16 +50,18 @@ function initSocket(server) {
 
   io.on('connection', (socket) => {
     const who = socket.user ? `${socket.user.name} (${socket.user.role})` : 'unknown';
-    console.log(`[socket] client connected: ${socket.id} — ${who}`);
+    const tenantId = (socket.user && socket.user.tenantId) || 'default';
+    console.log(`[socket] client connected: ${socket.id} — ${who} [tenant: ${tenantId}]`);
 
-    // Everyone lands on 'floor' (tables/orders/billing events). Kitchen staff
-    // (or Admin) additionally join 'kitchen' for KOT/KDS events.
-    socket.join('floor');
+    // Everyone lands on their tenant's 'floor' (tables/orders/billing
+    // events). Kitchen staff (or Admin) additionally join their tenant's
+    // 'kitchen' for KOT/KDS events.
+    socket.join(tenantRoom('floor', tenantId));
 
     const canViewKitchen =
       socket.user && (socket.user.role === 'Admin' || (socket.user.permissions || []).includes('kitchen.view'));
     if (canViewKitchen) {
-      socket.join('kitchen');
+      socket.join(tenantRoom('kitchen', tenantId));
     }
 
     socket.on('disconnect', () => {
@@ -61,12 +79,13 @@ function getIO() {
   return io;
 }
 
-// Room-scoped emit helper for the new dine-in modules (tables/orders/kots).
-// Swallows the "not initialized" error the same way payments.service's
-// global emit() does, so it's safe to call from tests/scripts.
+// Room-scoped emit helper. Callers keep passing the logical room name
+// ('floor'/'kitchen') — the current tenant is appended automatically from
+// the request context. Swallows the "not initialized" error so it's safe
+// to call from tests/scripts.
 function emitTo(room, event, payload) {
   try {
-    getIO().to(room).emit(event, payload);
+    getIO().to(tenantRoom(room, currentTenantId())).emit(event, payload);
   } catch (err) {
     // socket not initialized (e.g. in tests/scripts) — ignore
   }
