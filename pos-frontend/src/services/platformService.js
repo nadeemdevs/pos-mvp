@@ -25,3 +25,15 @@ export const setTenantStatus = (slug, status) =>
 export const getPlatformSettings = () => platformApi.get('/settings').then((r) => r.data)
 
 export const updatePlatformSettings = (payload) => platformApi.put('/settings', payload).then((r) => r.data)
+
+export const getPlatformTenantDetail = (slug, range) =>
+  platformApi.get(`/tenants/${slug}`, { params: range ? { range } : undefined }).then((r) => r.data)
+
+export const updateTenantFeatures = (slug, features) =>
+  platformApi.put(`/tenants/${slug}/features`, { features }).then((r) => r.data)
+
+export const getPlatformAuditLogs = (params) => platformApi.get('/audit', { params }).then((r) => r.data)
+
+export const getPlatformHealth = () => platformApi.get('/health').then((r) => r.data)
+
+export const searchPlatform = (q) => platformApi.get('/search', { params: { q } }).then((r) => r.data)

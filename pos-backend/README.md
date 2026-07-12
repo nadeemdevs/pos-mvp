@@ -8,6 +8,7 @@ Restaurant POS backend supporting two modes. Express + MongoDB (Mongoose) + Sock
 - **Phase 6.1** — true multi-tenancy: isolated per-tenant data, public tenant signup, per-tenant socket rooms. See [Phase 6.1](#phase-61-true-multi-tenancy) below.
 - **Phase 6.2** — cross-tenant platform-admin surface (`/api/platform/*`), suspension enforced on every authenticated request + live sockets, per-tenant+IP public rate limiting, and production config hardening. See [Phase 6.2](#phase-62-platform-admin-suspension-hardening-abuse-guards) below. **Superseded by Phase 6.4a** — the `User.platformAdmin` mechanism described there has been retired entirely.
 - **Phase 6.4a** — replaces Phase 6.2's `platformAdmin` flag with a wholly separate `PlatformOperator` identity/login, a platform settings singleton (email-provider override + maintenance mode), and an honestly-labeled GMV dashboard. See [Phase 6.4a](#phase-64a-platform-operator-identity-platform-settings-gmv-dashboard) below.
+- **Phase 6.4b** — Platform Console UI/feature expansion on top of 6.4a: tenant detail page, a proper platform-level audit log (replacing the 6.4a console-log note), system health checks, cross-tenant search, and per-tenant feature-flag overrides. See [Phase 6.4b](#phase-64b-platform-console-expansion-tenant-detail-platform-audit-log-system-health-search-feature-overrides) below.
 
 ## Setup
 
@@ -688,3 +689,49 @@ There is no subscription billing yet, so what's measured is **gross transaction 
 
 - The `PlatformLayout` nav shows **Overview** and **Settings** (not a separate "Tenants" link) — the tenants leaderboard lives on the Overview page alongside the stat cards/GMV chart, matching the pre-existing single-page design of `PlatformPage.jsx` rather than splitting it into a new page.
 - Platform-level audit logging for settings changes is a `console.log` line, not a formal `AuditLog` entry (see rationale above) — flagged as a follow-up.
+
+**Both deviations above are resolved by Phase 6.4b below** — the tenants leaderboard/table moved to its own route and the console.log note was replaced by a real audit trail.
+
+## Phase 6.4b: Platform Console expansion — tenant detail, platform audit log, system health, search, feature overrides
+
+Builds on 6.4a's `PlatformOperator` identity/`requirePlatformAuth` gate without touching that mechanism at all. Every route below is added under the existing `router.use(requirePlatformAuth)` in `platform.routes.js`, so a tenant user's JWT (even a restaurant admin's) is rejected the same way as every pre-existing platform route. Tenant impersonation is **explicitly deferred** — not built in this phase; the sidebar has a comment marking where it would go, nothing more.
+
+### Platform-level audit log — distinct from the tenant-scoped `AuditLog`
+
+- `src/modules/platform/platformAuditLog.model.js` — new `PlatformAuditLog` collection, `{operatorId, operatorEmail, action, entity, entityId, meta, at}`, `{tenantScoped: false}` (mirrors `PlatformOperator`/`PlatformSettings`/`Tenant`). This is a **completely separate collection** from `src/modules/audit/auditLog.model.js` (the tenant/branch-scoped `AuditLog` used by tenant-side `GET /api/audit`): that one records what tenant users do inside their own tenant; this one records what **platform operators** do across the whole platform.
+- `src/modules/platform/platformAudit.service.js` — `log({operatorId, operatorEmail, action, entity, entityId, meta})`, fire-and-forget, never throws (mirrors `../audit/audit.service.js`'s resilience contract).
+- Wired into: `operator.login` (successful `POST /api/platform/auth/login`, in `platformAuth.service.js`), `tenant.suspended`/`tenant.activated` (in addition to the existing tenant-scoped `platform.tenant.suspended`/`activated` row — the platform-level row is keyed to the acting operator, the tenant-level row to the affected tenant), `platform.settings_updated` (**replaces** the 6.4a console-log-only note), and `tenant.features_overridden` (see below).
+- `GET /api/platform/audit?action=&entity=&from=&to=&page=&limit=` — mirrors `../audit/audit.controller.js`'s query/pagination shape exactly (newest-first, same filter semantics), against `PlatformAuditLog` instead.
+
+### Tenant detail page
+
+- `GET /api/platform/tenants/:slug` → `{tenant: {name, slug, ownerEmail, status, createdAt}, stats: {userCount, invoiceCount, gmv30d, gmvTrend}, users: [{name, email, role}], branches: [{code, name, active}], features: {...}}`. Every read is `skipTenantScope`'d and filtered explicitly to the one tenant. `users` is built from `select('name email role')` (never pulls `passwordHash`) plus a second defence-in-depth pass that only forwards the known-safe fields — a password hash can never leak through this endpoint.
+- Tenant suspend/activate on this page **reuses** the existing `PATCH /api/platform/tenants/:slug {status}` endpoint rather than adding a duplicate `POST .../suspend`/`.../activate` pair.
+
+### Cross-tenant feature-flag overrides — the one sanctioned cross-tenant write path
+
+- `PUT /api/platform/tenants/:slug/features {features: {...partial...}}` — resolves that one tenant's `Setting` document by `tenantId` (`skipTenantScope`, filtered explicitly to `slug`) and applies a **non-clobbering partial merge** on the `features` sub-document only — same merge contract as `settings.controller.js#mergeFeatures` (only keys present in the request body are applied; every sibling flag, and every OTHER settings field — `paymentProviders`, `discounts`, `printing`, `delivery`, `approvals`, ... — is left byte-identical). The merge function is extracted (`platform.controller.js#mergeFeatures`) and unit-tested directly (`platform.controller.test.js`) since a bug here could silently corrupt a tenant's live configuration. Audits `tenant.features_overridden` with `meta.changed` listing only the keys whose value actually changed.
+
+### System health
+
+- `GET /api/platform/health` → `{db: {connected, pingMs}, email: {provider, configured, lastAttempt: {at, success, error}|null}, uptimeSeconds, nodeVersion, timestamp}`. DB check is a timed `mongoose.connection.db.admin().ping()`.
+- `src/common/email/emailService.js` gained a minimal module-level tracker (`recordEmailAttempt`/`getLastEmailAttempt`) that records `{at, success, error}` after **every** send attempt (success or failure) for both templates — a small, non-invasive addition; no existing call sites or behavior changed.
+
+### Cross-tenant search
+
+- `GET /api/platform/search?q=` → `{tenants: [{name, slug, ownerEmail}], users: [{name, email, tenantSlug, tenantName}]}`. Case-insensitive regex match (metacharacters escaped), capped at 5 results per bucket, no search index — deliberately simple operator tooling, not a public search feature. User results are joined back to their tenant for display context.
+
+### Frontend
+
+- `PlatformLayout.jsx` rebuilt as a **left sidebar** shell (Overview / Tenants / Activity / System / Settings) with a debounced global search box in the top bar (dropdown links straight to a matching tenant's detail page; a matching user's result also links to their tenant's detail page, since there's no impersonation to jump into the user itself yet).
+- A **dark theme scoped entirely to `.platform-shell`** (see `index.css`) — redeclares the same CSS custom properties (`--bg`, `--surface`, `--text`, `--border`, `--accent`, ...) that every shared component already reads from, so `Modal`/`ConfirmDialog`/`Spinner`/`EmptyState`/`Toaster`/`.status-pill`/`.chip`/`.table` all re-theme automatically for any page under this layout, with zero risk of leaking into the tenant app, its `AppLayout`, or any login page (the override only applies inside an element that has `platform-shell` as itself or an ancestor).
+- `PlatformPage.jsx` (Overview) restyled Stripe-style: one large GMV headline + trend chart, then supporting stat cards, then a compact top-5 "Top tenants by GMV" leaderboard linking to `/platform/tenants/:slug`, with a "View all tenants →" link.
+- `TenantsListPage.jsx` (`/platform/tenants`) — the full tenant table (search box, filtering by name/slug/owner email client-side, range/sort controls, suspend/activate), moved off the Overview page.
+- `TenantDetailPage.jsx` (`/platform/tenants/:slug`) — header (name/slug/owner/status pill/created + Suspend/Activate), stat cards, GMV trend chart, read-only Users/Branches tables, and an editable Feature Flags section (checkbox per flag + Save, partial `PUT`, toast on success/error, always reflects the tenant's current flags from the detail fetch rather than stale client state).
+- `ActivityPage.jsx` (`/platform/activity`) — mirrors `AuditPage.jsx`'s filter/pagination UX against the new platform-level audit log.
+- `SystemHealthPage.jsx` (`/platform/system`) — status cards with green/red dot indicators for DB connectivity+latency, email provider configured+last-attempt, and uptime; manual refresh button plus a 30s auto-refresh.
+
+### Deviations from the spec (6.4b)
+
+- Tenant suspend/activate reuses the existing `PATCH /api/platform/tenants/:slug` endpoint rather than adding separate `POST .../suspend` / `.../activate` routes, per the spec's own "prefer reusing what exists" guidance.
+- Tenant impersonation is explicitly out of scope for this phase — only a commented placeholder nav slot exists in `PlatformLayout.jsx`, no functionality behind it.

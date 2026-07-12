@@ -30,6 +30,10 @@ import AnalyticsPage from '../pages/AnalyticsPage'
 import PlatformPage from '../pages/PlatformPage'
 import PlatformLoginPage from '../pages/PlatformLoginPage'
 import PlatformSettingsPage from '../pages/PlatformSettingsPage'
+import TenantsListPage from '../pages/TenantsListPage'
+import TenantDetailPage from '../pages/TenantDetailPage'
+import ActivityPage from '../pages/ActivityPage'
+import SystemHealthPage from '../pages/SystemHealthPage'
 import QrOrderPage from '../pages/qr/QrOrderPage'
 
 export const router = createBrowserRouter([
@@ -93,6 +97,10 @@ export const router = createBrowserRouter([
         element: <PlatformLayout />,
         children: [
           { path: '/platform', element: <PlatformPage /> },
+          { path: '/platform/tenants', element: <TenantsListPage /> },
+          { path: '/platform/tenants/:slug', element: <TenantDetailPage /> },
+          { path: '/platform/activity', element: <ActivityPage /> },
+          { path: '/platform/system', element: <SystemHealthPage /> },
           { path: '/platform/settings', element: <PlatformSettingsPage /> },
         ],
       },

@@ -1,5 +1,6 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = rateLimit;
 const { requireAuth } = require('../../common/middleware/auth');
 const controller = require('./auth.controller');
 
@@ -32,7 +33,7 @@ const resendVerificationLimiter = rateLimit({
   max: 3,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => (req.user && req.user.id) || req.ip,
+  keyGenerator: (req) => (req.user && req.user.id) || ipKeyGenerator(req.ip),
   message: { message: 'Too many verification emails requested — please try again later' },
 });
 

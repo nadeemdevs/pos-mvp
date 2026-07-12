@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const config = require('../../config');
 const PlatformOperator = require('./platformOperator.model');
+const platformAuditService = require('./platformAudit.service');
 
 const PLATFORM_SCOPE = 'platform-operator';
 const PLATFORM_TOKEN_EXPIRES_IN = '12h';
@@ -33,6 +34,14 @@ async function login(email, password) {
 
   const match = await bcrypt.compare(String(password || ''), operator.passwordHash);
   if (!match) throw unauthorized('Invalid email or password');
+
+  platformAuditService.log({
+    operatorId: operator._id,
+    operatorEmail: operator.email,
+    action: 'operator.login',
+    entity: 'PlatformOperator',
+    entityId: operator._id,
+  });
 
   return {
     token: issuePlatformToken(operator),

@@ -1237,65 +1237,324 @@ button, input, select, textarea {
   margin: 10px 12px;
 }
 
-/* Phase 6.4a — Platform Console shell (PlatformLayout). Deliberately its own
-   minimal top-nav look, distinct from the tenant app's sidebar shell — an
-   operator must never mistake this for a tenant's own dashboard. */
+/* Phase 6.4b — Platform Console shell (PlatformLayout): a LEFT sidebar
+   (mirrors the tenant app's .sidebar structurally) inside a DARK theme that
+   is scoped ENTIRELY to `.platform-shell` via CSS custom-property overrides.
+   Because every shared component (Modal, ConfirmDialog, Spinner, EmptyState,
+   Toaster, .status-pill, .chip, .table, ...) already reads colors from the
+   var(--…) tokens defined on :root, redeclaring those same tokens on this
+   one ancestor class re-themes all of them automatically for any descendant
+   — with ZERO risk of leaking into the tenant app, its AppLayout, or any
+   login page, since the override only ever applies inside an element that
+   actually has the `platform-shell` class on it or an ancestor of it. */
 
 .platform-shell {
+  --bg: #0b1220;
+  --surface: #141b2b;
+  --sidebar-bg: #0a0f1a;
+  --sidebar-text: #a7b0c0;
+  --sidebar-text-active: #ffffff;
+  --text: #e7eaf1;
+  --text-muted: #97a1b3;
+  --border: #26304a;
+  --accent: #6d8dff;
+  --accent-hover: #8aa4ff;
+  --accent-bg: rgba(109, 141, 255, 0.16);
+  --success: #34d399;
+  --success-bg: rgba(52, 211, 153, 0.16);
+  --danger: #f87171;
+  --danger-bg: rgba(248, 113, 113, 0.16);
+  --warning: #fbbf24;
+  --warning-bg: rgba(251, 191, 36, 0.16);
+  --muted-bg: #1b2337;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3);
+
   min-height: 100vh;
   display: flex;
-  flex-direction: column;
-  background: var(--bg, #0f172a);
+  color: var(--text);
+  background: var(--bg);
 }
 
-.platform-header {
+.platform-sidebar {
+  width: 224px;
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
   display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 14px 24px;
-  background: #111827;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-direction: column;
+  padding: 20px 0;
 }
 
 .platform-brand {
   font-weight: 700;
   font-size: 1.05rem;
-  color: #fbbf24;
+  color: var(--sidebar-text-active);
+  padding: 0 20px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 12px;
   white-space: nowrap;
 }
 
 .platform-nav {
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 12px;
   flex: 1;
 }
 
 .platform-nav-link {
-  padding: 8px 14px;
-  border-radius: 6px;
-  color: rgba(255, 255, 255, 0.75);
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: var(--sidebar-text);
   text-decoration: none;
-  font-size: 0.9rem;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
 }
 
 .platform-nav-link:hover {
   background: rgba(255, 255, 255, 0.06);
+  color: var(--sidebar-text-active);
 }
 
 .platform-nav-link.active {
-  background: rgba(251, 191, 36, 0.14);
-  color: #fbbf24;
+  background: var(--accent);
+  color: #fff;
 }
 
-.platform-header-user {
+.platform-sidebar-footer {
+  padding: 14px 20px 4px;
+  margin-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.platform-operator-name {
+  font-weight: 600;
+  color: var(--sidebar-text-active);
+  font-size: 14px;
+}
+
+.platform-operator-email {
+  font-size: 12px;
+  color: var(--sidebar-text);
+  word-break: break-all;
+}
+
+.platform-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.platform-topbar {
+  height: 60px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  gap: 12px;
+  padding: 0 24px;
 }
 
 .platform-content {
   flex: 1;
   padding: 24px;
+  overflow-y: auto;
+}
+
+/* Global search (top bar) */
+
+.platform-search {
+  position: relative;
+  width: 340px;
+  max-width: 100%;
+}
+
+.platform-search-input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.platform-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.platform-search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 380px;
+  max-width: 90vw;
+  max-height: 380px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  z-index: 50;
+}
+
+.platform-search-empty {
+  padding: 14px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.platform-search-group + .platform-search-group {
+  border-top: 1px solid var(--border);
+}
+
+.platform-search-group-label {
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.platform-search-result {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text);
+  font: inherit;
+}
+
+.platform-search-result:hover {
+  background: var(--muted-bg);
+}
+
+.platform-search-result-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Overview hero (Stripe-style GMV headline + trend) */
+
+.platform-hero {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow);
+}
+
+.platform-hero-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.platform-hero-value {
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1.15;
+  margin: 6px 0 18px;
+}
+
+/* Leaderboard */
+
+.platform-leaderboard-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  text-decoration: none;
+  color: var(--text);
+}
+
+.platform-leaderboard-row:last-child {
+  border-bottom: none;
+}
+
+.platform-leaderboard-row:hover {
+  color: var(--accent);
+}
+
+.platform-leaderboard-rank {
+  color: var(--text-muted);
+  font-size: 12px;
+  width: 22px;
+  flex-shrink: 0;
+}
+
+.platform-leaderboard-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.platform-leaderboard-gmv {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.platform-view-all-link {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.platform-view-all-link:hover {
+  color: var(--accent-hover);
+}
+
+/* Health status cards */
+
+.platform-health-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.platform-health-dot-ok {
+  background: var(--success);
+}
+
+.platform-health-dot-bad {
+  background: var(--danger);
+}
+
+/* Feature toggle rows (Tenant Detail) */
+
+.platform-feature-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.platform-feature-row:last-child {
+  border-bottom: none;
+}
+
+.platform-feature-name {
+  font-weight: 500;
 }
 
 /* Login: mid-session suspension notice */

@@ -26,8 +26,13 @@ router.get('/auth/me', requirePlatformAuth, controller.me);
 router.use(requirePlatformAuth);
 
 router.get('/overview', controller.overview);
+router.get('/search', controller.search);
+router.get('/audit', controller.auditList);
+router.get('/health', controller.health);
 router.get('/tenants', controller.listTenants);
+router.get('/tenants/:slug', controller.getTenantDetail);
 router.patch('/tenants/:slug', controller.updateTenantStatus);
+router.put('/tenants/:slug/features', controller.updateTenantFeatures);
 router.get('/settings', controller.getSettings);
 router.put('/settings', controller.updateSettings);
 
