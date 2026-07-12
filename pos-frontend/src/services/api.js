@@ -36,6 +36,15 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// Public, unauthenticated top-level pages — a 401 from their own API calls
+// (e.g. an expired reset/verify token) must show inline error state, not
+// bounce the visitor to /login (there's no session to log out of anyway).
+const PUBLIC_PATH_PREFIXES = ['/qr', '/forgot-password', '/reset-password', '/verify-email']
+
+function isPublicPath(pathname) {
+  return PUBLIC_PATH_PREFIXES.some((p) => pathname.startsWith(p))
+}
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -58,17 +67,18 @@ api.interceptors.response.use(
         // sessionStorage may be unavailable (private mode); non-fatal.
       }
       useAuthStore.getState().logout()
-      if (window.location.pathname !== '/login' && !window.location.pathname.startsWith('/qr')) {
+      if (window.location.pathname !== '/login' && !isPublicPath(window.location.pathname)) {
         window.location.href = '/login'
       }
       return Promise.reject(error)
     }
 
     if (status === 401) {
-      useAuthStore.getState().logout()
-      // The public QR-ordering surface is mounted outside the authenticated
-      // app and must never be bounced to the staff login screen.
-      if (window.location.pathname !== '/login' && !window.location.pathname.startsWith('/qr')) {
+      // The public QR-ordering surface and the public password-reset/
+      // email-verification pages are mounted outside the authenticated app
+      // and must never be bounced to the staff login screen.
+      if (window.location.pathname !== '/login' && !isPublicPath(window.location.pathname)) {
+        useAuthStore.getState().logout()
         window.location.href = '/login'
       }
     }

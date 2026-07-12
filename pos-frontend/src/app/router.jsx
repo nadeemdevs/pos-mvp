@@ -1,10 +1,15 @@
 import { createBrowserRouter } from 'react-router-dom'
 import ProtectedRoute from '../components/ProtectedRoute'
+import PlatformProtectedRoute from '../components/PlatformProtectedRoute'
 import RootRoute from '../components/RootRoute'
 import DashboardRedirect from '../components/DashboardRedirect'
 import AppLayout from '../layouts/AppLayout'
+import PlatformLayout from '../layouts/PlatformLayout'
 import LoginPage from '../pages/LoginPage'
 import SignupPage from '../pages/SignupPage'
+import ForgotPasswordPage from '../pages/ForgotPasswordPage'
+import ResetPasswordPage from '../pages/ResetPasswordPage'
+import VerifyEmailPage from '../pages/VerifyEmailPage'
 import BillingPage from '../pages/BillingPage'
 import TablesPage from '../pages/TablesPage'
 import OrderPage from '../pages/OrderPage'
@@ -23,6 +28,8 @@ import ReservationsPage from '../pages/ReservationsPage'
 import ShiftsPage from '../pages/ShiftsPage'
 import AnalyticsPage from '../pages/AnalyticsPage'
 import PlatformPage from '../pages/PlatformPage'
+import PlatformLoginPage from '../pages/PlatformLoginPage'
+import PlatformSettingsPage from '../pages/PlatformSettingsPage'
 import QrOrderPage from '../pages/qr/QrOrderPage'
 
 export const router = createBrowserRouter([
@@ -33,6 +40,18 @@ export const router = createBrowserRouter([
   {
     path: '/signup',
     element: <SignupPage />,
+  },
+  {
+    path: '/forgot-password',
+    element: <ForgotPasswordPage />,
+  },
+  {
+    path: '/reset-password',
+    element: <ResetPasswordPage />,
+  },
+  {
+    path: '/verify-email',
+    element: <VerifyEmailPage />,
   },
   // Public landing / index route: logged-out visitors see the marketing
   // LandingPage; logged-in users fall through (via RootRoute's <Outlet/>) to
@@ -58,6 +77,26 @@ export const router = createBrowserRouter([
   {
     path: '/qr/:qrToken',
     element: <QrOrderPage />,
+  },
+  // Phase 6.4a — platform-operator console. Completely separate auth/session
+  // (platformAuthStore, not the tenant authStore) and completely separate
+  // layout (PlatformLayout, not AppLayout) from the tenant app above. A
+  // tenant user's session has no bearing on any of this.
+  {
+    path: '/platform/login',
+    element: <PlatformLoginPage />,
+  },
+  {
+    element: <PlatformProtectedRoute />,
+    children: [
+      {
+        element: <PlatformLayout />,
+        children: [
+          { path: '/platform', element: <PlatformPage /> },
+          { path: '/platform/settings', element: <PlatformSettingsPage /> },
+        ],
+      },
+    ],
   },
   {
     element: <ProtectedRoute />,
@@ -141,10 +180,6 @@ export const router = createBrowserRouter([
           {
             element: <ProtectedRoute permission="settings.manage" />,
             children: [{ path: '/settings', element: <SettingsPage /> }],
-          },
-          {
-            element: <ProtectedRoute requirePlatformAdmin />,
-            children: [{ path: '/platform', element: <PlatformPage /> }],
           },
         ],
       },

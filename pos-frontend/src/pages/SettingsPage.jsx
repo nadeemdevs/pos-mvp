@@ -4,6 +4,8 @@ import { getSettings, updateSettings } from '../services/settingsService'
 import { testPrint } from '../services/printService'
 import { createBranch, getBranches, updateBranch } from '../services/branchService'
 import { setApprovalPin } from '../services/approvalService'
+import { changeEmail, changePassword } from '../services/authService'
+import api from '../services/api'
 import { useAuthStore } from '../store/authStore'
 import { toast } from '../store/toastStore'
 import Spinner from '../components/Spinner'
@@ -819,7 +821,187 @@ export default function SettingsPage() {
         maxPercent={discounts.maxPercent}
       />
 
+      <AccountCard />
+
+      <DataExportCard />
+
       <BranchesCard />
+    </div>
+  )
+}
+
+// Own-account self-service — available to ANY authenticated user (not gated
+// by settings.manage), since it only ever touches the caller's own account.
+function AccountCard() {
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState('')
+
+  const [newEmail, setNewEmail] = useState('')
+  const [emailCurrentPassword, setEmailCurrentPassword] = useState('')
+  const [emailChangedNote, setEmailChangedNote] = useState('')
+
+  const passwordMutation = useMutation({
+    mutationFn: () => changePassword({ currentPassword, newPassword }),
+    onSuccess: () => {
+      toast('Password changed', 'success')
+      setCurrentPassword('')
+      setNewPassword('')
+      setNewPasswordConfirm('')
+    },
+    onError: (e) => toast(e.response?.data?.message || 'Failed to change password', 'error'),
+  })
+
+  const emailMutation = useMutation({
+    mutationFn: () => changeEmail({ newEmail, currentPassword: emailCurrentPassword }),
+    onSuccess: () => {
+      setEmailChangedNote('A new verification email has been sent to your new address.')
+      toast('Email changed', 'success')
+      setNewEmail('')
+      setEmailCurrentPassword('')
+    },
+    onError: (e) => toast(e.response?.data?.message || 'Failed to change email', 'error'),
+  })
+
+  const handlePasswordSubmit = (e) => {
+    e.preventDefault()
+    if (newPassword.length < 8) {
+      toast('New password must be at least 8 characters', 'error')
+      return
+    }
+    if (newPassword !== newPasswordConfirm) {
+      toast('New passwords do not match', 'error')
+      return
+    }
+    passwordMutation.mutate()
+  }
+
+  const handleEmailSubmit = (e) => {
+    e.preventDefault()
+    setEmailChangedNote('')
+    emailMutation.mutate()
+  }
+
+  return (
+    <div className="card settings-form">
+      <h2>Account</h2>
+      <p className="page-subtitle">Manage your own login credentials.</p>
+
+      <div className="field-row">
+        <form onSubmit={handlePasswordSubmit} style={{ flex: 1 }}>
+          <span className="field-label">Change Password</span>
+          <label className="field">
+            <span>Current Password</span>
+            <input
+              type="password"
+              required
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>New Password</span>
+            <input
+              type="password"
+              required
+              minLength={8}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Confirm New Password</span>
+            <input
+              type="password"
+              required
+              minLength={8}
+              value={newPasswordConfirm}
+              onChange={(e) => setNewPasswordConfirm(e.target.value)}
+            />
+          </label>
+          <div className="modal-actions">
+            <button type="submit" className="btn btn-primary" disabled={passwordMutation.isPending}>
+              {passwordMutation.isPending ? 'Saving…' : 'Change Password'}
+            </button>
+          </div>
+        </form>
+
+        <form onSubmit={handleEmailSubmit} style={{ flex: 1 }}>
+          <span className="field-label">Change Email</span>
+          <label className="field">
+            <span>New Email</span>
+            <input
+              type="email"
+              required
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Current Password</span>
+            <input
+              type="password"
+              required
+              value={emailCurrentPassword}
+              onChange={(e) => setEmailCurrentPassword(e.target.value)}
+            />
+          </label>
+          {emailChangedNote && <p className="field-hint">{emailChangedNote}</p>}
+          <div className="modal-actions">
+            <button type="submit" className="btn btn-primary" disabled={emailMutation.isPending}>
+              {emailMutation.isPending ? 'Saving…' : 'Change Email'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// Gated on settings.manage. Downloads a JSON bundle of this tenant's data via
+// an authenticated blob request (the auth header can't be attached to a plain
+// <a href> download, so we fetch the blob ourselves and trigger the save).
+function DataExportCard() {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const [isExporting, setIsExporting] = useState(false)
+
+  if (!hasPermission('settings.manage')) return null
+
+  const handleExport = async () => {
+    setIsExporting(true)
+    try {
+      const response = await api.get('/settings/export', { responseType: 'blob' })
+      const disposition = response.headers['content-disposition'] || ''
+      const match = disposition.match(/filename="([^"]+)"/)
+      const filename = match ? match[1] : 'export.json'
+
+      const url = window.URL.createObjectURL(response.data)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+
+      toast('Export downloaded', 'success')
+    } catch (e) {
+      toast(e.response?.data?.message || 'Failed to export data', 'error')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  return (
+    <div className="card settings-form">
+      <h2>Data Export</h2>
+      <p className="page-subtitle">
+        Download a JSON snapshot of your restaurant's data — settings, menu, customers, and the
+        last 90 days of invoices.
+      </p>
+      <button type="button" className="btn btn-ghost" onClick={handleExport} disabled={isExporting}>
+        {isExporting ? 'Exporting…' : 'Export my data'}
+      </button>
     </div>
   )
 }

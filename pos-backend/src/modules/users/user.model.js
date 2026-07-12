@@ -7,12 +7,13 @@ const userSchema = new mongoose.Schema(
     passwordHash: { type: String, required: true },
     role: { type: mongoose.Schema.Types.ObjectId, ref: 'Role', required: true },
     active: { type: Boolean, default: true },
-    // Phase 6.2 — platform (cross-tenant) super-admin flag. Deliberately NOT
-    // settable through ANY API path (register/user-create/user-update all use
-    // explicit field lists that omit it): only seed/scripts may set it, so a
-    // tenant admin can never escalate themselves to platform admin by POSTing
-    // { platformAdmin: true }.
-    platformAdmin: { type: Boolean, default: false },
+    // Phase 6.3 — email verification + password-reset-token invalidation.
+    emailVerified: { type: Boolean, default: false },
+    // Bumped on every password change (reset OR self-service change). Any
+    // outstanding password-reset JWT issued before this timestamp (compared
+    // against the token's `iat`) is rejected — a JWT-invalidation-without-a-
+    // blacklist trick, see auth.tokenInvalidation.js.
+    passwordChangedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

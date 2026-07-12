@@ -83,6 +83,9 @@ export default function LoginPage() {
           {mutation.isPending ? 'Signing in…' : 'Sign In'}
         </button>
         <p className="login-alt">
+          <Link to="/forgot-password">Forgot password?</Link>
+        </p>
+        <p className="login-alt">
           New here? <Link to="/signup">Create your restaurant</Link>
         </p>
       </form>

@@ -11,20 +11,29 @@ import EmptyState from '../components/EmptyState'
 import { toast } from '../store/toastStore'
 import { formatCurrency, formatDate } from '../utils/format'
 
+const RANGES = [
+  { key: 'today', label: 'Today' },
+  { key: '7d', label: '7d' },
+  { key: '30d', label: '30d' },
+  { key: 'all', label: 'All-time' },
+]
+
 export default function PlatformPage() {
   const queryClient = useQueryClient()
   // The tenant we're about to flip; holds { slug, name, nextStatus }.
   const [target, setTarget] = useState(null)
+  const [range, setRange] = useState('30d')
+  const [sort, setSort] = useState('created')
 
   const overviewQuery = useQuery({
-    queryKey: ['platform', 'overview'],
-    queryFn: getPlatformOverview,
+    queryKey: ['platform', 'overview', range],
+    queryFn: () => getPlatformOverview(range),
     retry: false,
   })
 
   const tenantsQuery = useQuery({
-    queryKey: ['platform', 'tenants'],
-    queryFn: getPlatformTenants,
+    queryKey: ['platform', 'tenants', range, sort],
+    queryFn: () => getPlatformTenants(range, sort),
     retry: false,
   })
 
@@ -53,6 +62,8 @@ export default function PlatformPage() {
 
   const overview = overviewQuery.data
 
+  const toggleGmvSort = () => setSort((s) => (s === 'gmv' ? 'created' : 'gmv'))
+
   return (
     <div>
       <div className="page-header">
@@ -60,6 +71,23 @@ export default function PlatformPage() {
           <h1 className="page-title">Platform</h1>
           <p className="page-subtitle">Tenant operations across the platform</p>
         </div>
+        <div className="chip-row">
+          {RANGES.map((r) => (
+            <button
+              key={r.key}
+              type="button"
+              className={`chip ${range === r.key ? 'active' : ''}`}
+              onClick={() => setRange(r.key)}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="banner banner-warning">
+        Platform subscription billing isn't live yet — the figures below reflect gross sales
+        (GMV) processed through tenant restaurants, not platform revenue.
       </div>
 
       {/* Overview stat cards */}
@@ -88,11 +116,13 @@ export default function PlatformPage() {
             <span className="stat-value">{overview?.signupsThisMonth ?? 0}</span>
           </div>
           <div className="stat-card">
-            <span className="stat-label">Revenue (30d)</span>
-            <span className="stat-value">{formatCurrency(overview?.revenue30d)}</span>
+            <span className="stat-label">Transaction Volume (GMV)</span>
+            <span className="stat-value">{formatCurrency(overview?.gmv)}</span>
           </div>
         </div>
       )}
+
+      <GmvTrendCard data={overview?.gmvTrend} loading={overviewQuery.isLoading} />
 
       {/* Tenants table */}
       <div className="card">
@@ -111,7 +141,9 @@ export default function PlatformPage() {
                 <th>Created</th>
                 <th>Users</th>
                 <th>Invoices</th>
-                <th>Revenue (30d)</th>
+                <th className="sortable-th" onClick={toggleGmvSort}>
+                  GMV{sort === 'gmv' ? ' ▼' : ''}
+                </th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -130,7 +162,7 @@ export default function PlatformPage() {
                     <td>{t.createdAt ? formatDate(t.createdAt) : '—'}</td>
                     <td>{t.userCount ?? 0}</td>
                     <td>{t.invoiceCount ?? 0}</td>
-                    <td>{formatCurrency(t.revenue30d)}</td>
+                    <td>{formatCurrency(t.gmv)}</td>
                     <td>
                       <span
                         className={`status-pill ${
@@ -187,6 +219,37 @@ export default function PlatformPage() {
           statusMutation.mutate({ slug: target.slug, status: target.nextStatus })
         }
       />
+    </div>
+  )
+}
+
+function GmvTrendCard({ data, loading }) {
+  const rows = Array.isArray(data) ? data : []
+  const maxGmv = Math.max(1, ...rows.map((r) => r.gmv || 0))
+
+  return (
+    <div className="card">
+      <h2>GMV Trend</h2>
+      {loading ? (
+        <Spinner label="Loading trend…" />
+      ) : rows.length === 0 ? (
+        <EmptyState title="No transaction volume in this range" />
+      ) : (
+        <div className="peak-hours-chart">
+          {rows.map((r, idx) => (
+            <div key={r.date} className="peak-hours-bar-wrap">
+              <div
+                className="peak-hours-bar"
+                title={`${r.date}: ${formatCurrency(r.gmv)}`}
+                style={{ height: `${Math.max(2, (r.gmv / maxGmv) * 100)}%` }}
+              />
+              <span className="peak-hours-label">
+                {idx % Math.ceil(rows.length / 10 || 1) === 0 ? r.date.slice(5) : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

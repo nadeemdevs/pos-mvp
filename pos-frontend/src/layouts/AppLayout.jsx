@@ -1,12 +1,64 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useBranchStore } from '../store/branchStore'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getSettings } from '../services/settingsService'
 import { getBranches } from '../services/branchService'
+import { resendVerification } from '../services/authService'
 import { toast } from '../store/toastStore'
 import Toaster from '../components/Toaster'
+
+const VERIFY_BANNER_DISMISSED_KEY = 'emailVerifyBannerDismissed'
+
+// Slim, dismissible-for-the-session nudge shown when the logged-in user's
+// email hasn't been verified yet. Reuses the existing .banner/.banner-warning
+// styles (see settings/order banners) for visual consistency.
+function EmailVerificationBanner() {
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return sessionStorage.getItem(VERIFY_BANNER_DISMISSED_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+
+  const mutation = useMutation({
+    mutationFn: resendVerification,
+    onSuccess: () => toast('Verification email sent', 'success'),
+    onError: (e) => toast(e.response?.data?.message || 'Failed to resend verification email', 'error'),
+  })
+
+  const handleDismiss = () => {
+    setDismissed(true)
+    try {
+      sessionStorage.setItem(VERIFY_BANNER_DISMISSED_KEY, '1')
+    } catch {
+      // sessionStorage may be unavailable (private mode); non-fatal.
+    }
+  }
+
+  if (dismissed) return null
+
+  return (
+    <div className="banner banner-warning">
+      <span>Please verify your email address.</span>
+      <span className="banner-actions">
+        <button
+          type="button"
+          className="banner-link"
+          onClick={() => mutation.mutate()}
+          disabled={mutation.isPending}
+        >
+          {mutation.isPending ? 'Sending…' : 'Resend'}
+        </button>
+        <button type="button" className="banner-link" onClick={handleDismiss}>
+          Dismiss
+        </button>
+      </span>
+    </div>
+  )
+}
 
 const NAV_LINKS = [
   { to: '/', label: 'Dashboard', permission: null },
@@ -118,21 +170,6 @@ export default function AppLayout() {
               {link.label}
             </NavLink>
           ))}
-          {/* Platform-operator entry: only the platform admin ever sees this.
-              Set apart from tenant navigation by a divider. */}
-          {user?.platformAdmin && (
-            <>
-              <div className="sidebar-divider" />
-              <NavLink
-                to="/platform"
-                className={({ isActive }) =>
-                  'sidebar-link sidebar-link-platform' + (isActive ? ' active' : '')
-                }
-              >
-                Platform
-              </NavLink>
-            </>
-          )}
         </nav>
       </aside>
       <div className="app-main">
@@ -160,6 +197,7 @@ export default function AppLayout() {
           </div>
         </header>
         <main className="app-content">
+          {user?.emailVerified === false && <EmailVerificationBanner />}
           <Outlet />
         </main>
       </div>

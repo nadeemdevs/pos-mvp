@@ -1,18 +1,34 @@
 const express = require('express');
-const { requireAuth } = require('../../common/middleware/auth');
-const requirePlatformAdmin = require('../../common/middleware/requirePlatformAdmin');
+const rateLimit = require('express-rate-limit');
+const requirePlatformAuth = require('../../common/middleware/requirePlatformAuth');
 const controller = require('./platform.controller');
 
 const router = express.Router();
 
-// Cross-tenant platform-operator surface. Every route is auth'd AND gated to
-// platform admins. requireAuth exempts /api/platform from the tenant
-// suspension check, and platform admins are exempt regardless — so an operator
-// can still run these while their own tenant (or any tenant) is suspended.
-router.use(requireAuth, requirePlatformAdmin);
+// Phase 6.4a — platform-operator login is public (no session yet to attach a
+// token to) but sensitive, so it gets its own tight limiter, mirroring
+// authLimiter/forgotPasswordLimiter's style in auth.routes.js.
+const platformLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many login attempts — please try again later' },
+});
+
+router.post('/auth/login', platformLoginLimiter, controller.login);
+router.get('/auth/me', requirePlatformAuth, controller.me);
+
+// Everything below requires a platform-operator token — a normal tenant
+// user's JWT (even one belonging to a restaurant admin) is REJECTED here,
+// because it carries no `scope: 'platform-operator'` claim. See
+// requirePlatformAuth.js for the mechanics of that isolation.
+router.use(requirePlatformAuth);
 
 router.get('/overview', controller.overview);
 router.get('/tenants', controller.listTenants);
 router.patch('/tenants/:slug', controller.updateTenantStatus);
+router.get('/settings', controller.getSettings);
+router.put('/settings', controller.updateSettings);
 
 module.exports = router;

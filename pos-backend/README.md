@@ -6,7 +6,8 @@ Restaurant POS backend supporting two modes. Express + MongoDB (Mongoose) + Sock
 - **Phase 5.1 (ERP core)** — multi-tenant/branch scaffolding, an in-process event bus, an audit trail, and inventory/recipes/purchasing (`/api/branches`, `/api/audit`, `/api/inventory`, `/api/vendors`, `/api/purchase-orders`). See [Phase 5.1: ERP core](#phase-51-erp-core) below.
 - **Phase 5.3** — guest-facing QR/online ordering (`/api/public/*`), delivery-partner webhook stubs (`/api/delivery/webhook/:partner`), an analytics module (`/api/analytics/*`), and real branch-data isolation (previously the branch fields existed but weren't enforced in queries). See [Phase 5.3](#phase-53--qronline-ordering-delivery-webhooks-analytics-branch-hardening) below.
 - **Phase 6.1** — true multi-tenancy: isolated per-tenant data, public tenant signup, per-tenant socket rooms. See [Phase 6.1](#phase-61-true-multi-tenancy) below.
-- **Phase 6.2** — cross-tenant platform-admin surface (`/api/platform/*`), suspension enforced on every authenticated request + live sockets, per-tenant+IP public rate limiting, and production config hardening. See [Phase 6.2](#phase-62-platform-admin-suspension-hardening-abuse-guards) below.
+- **Phase 6.2** — cross-tenant platform-admin surface (`/api/platform/*`), suspension enforced on every authenticated request + live sockets, per-tenant+IP public rate limiting, and production config hardening. See [Phase 6.2](#phase-62-platform-admin-suspension-hardening-abuse-guards) below. **Superseded by Phase 6.4a** — the `User.platformAdmin` mechanism described there has been retired entirely.
+- **Phase 6.4a** — replaces Phase 6.2's `platformAdmin` flag with a wholly separate `PlatformOperator` identity/login, a platform settings singleton (email-provider override + maintenance mode), and an honestly-labeled GMV dashboard. See [Phase 6.4a](#phase-64a-platform-operator-identity-platform-settings-gmv-dashboard) below.
 
 ## Setup
 
@@ -575,20 +576,20 @@ npm run delete:tenant -- <slug>    # scripts/deleteTenant.js (refuses 'default')
 
 ## Phase 6.2: Platform admin, suspension hardening, abuse guards
 
-### Platform admin (cross-tenant super-admin)
+### Platform admin (cross-tenant super-admin) — RETIRED, see Phase 6.4a
 
-- `User.platformAdmin` (Boolean, default `false`) — a cross-tenant super-admin flag. It is **settable only via seed/scripts**: every API path (`register`, user-create, user-update) uses explicit field lists that omit it, so POSTing `{platformAdmin: true}` is silently ignored (unit-tested in `users.controller.test.js`). `npm run seed` marks `admin@pos.local` (tenant `default`) `platformAdmin: true` (upsert-safe). The flag is carried in the JWT and returned in the login/`me` payload so the frontend can gate the platform nav.
-- `src/common/middleware/requirePlatformAdmin.js` — runs after `requireAuth`; `403` unless `req.user.platformAdmin === true`.
-- **`/api/platform/*`** (`src/modules/platform/`, `requireAuth + requirePlatformAdmin`) — operates **across tenants**; every query passes `skipTenantScope` explicitly (never relies on the ambient context):
-  - `GET /api/platform/overview` → `{tenantCount, active, suspended, signupsThisMonth, revenue30d}` (`revenue30d` = sum of PAID invoices platform-wide in the last 30 days).
-  - `GET /api/platform/tenants` → per-tenant `[{slug, name, ownerEmail, status, createdAt, userCount, invoiceCount, revenue30d}]`, newest first. Counts come from grouped aggregates over users/invoices joined to the tenant list in JS (no N+1).
-  - `PATCH /api/platform/tenants/:slug` `{status: 'ACTIVE'|'SUSPENDED'}` → updates `Tenant.status`. **Refuses to suspend `default`** (`400 The primary tenant cannot be suspended`). On change: invalidates the status cache and — if suspending — force-disconnects that tenant's live sockets. Audited `platform.tenant.suspended` / `platform.tenant.activated`.
+> This subsection describes the ORIGINAL Phase 6.2 design. It has been fully replaced — kept here only for historical context. Skip to [Phase 6.4a](#phase-64a-platform-operator-identity-platform-settings-gmv-dashboard) for the current mechanism.
+
+- ~~`User.platformAdmin` (Boolean, default `false`) — a cross-tenant super-admin flag baked into a TENANT user's account (`admin@pos.local`).~~ **Removed.** A leaked/compromised restaurant admin account could carry this flag, which is exactly the flaw Phase 6.4a fixes: the platform operator is now a completely separate identity that doesn't belong to any tenant.
+- ~~`src/common/middleware/requirePlatformAdmin.js`~~ — **deleted**; replaced by `requirePlatformAuth.js`.
+- **`/api/platform/*`** (`src/modules/platform/`) still exists and still operates **across tenants** (every query passes `skipTenantScope` explicitly), but is now gated by `requirePlatformAuth` instead of `requireAuth + requirePlatformAdmin` — see Phase 6.4a for the current request/response shapes (`revenue30d` has been renamed `gmv`/`gmvTrend`, and both `/overview` and `/tenants` now accept a `range`).
+  - `PATCH /api/platform/tenants/:slug` `{status: 'ACTIVE'|'SUSPENDED'}` → updates `Tenant.status`. **Refuses to suspend `default`** (`400 The primary tenant cannot be suspended`). On change: invalidates the status cache and — if suspending — force-disconnects that tenant's live sockets. Audited `platform.tenant.suspended` / `platform.tenant.activated`. (Unchanged behavior from 6.2 — only the auth gate in front of it changed.)
 
 ### Suspension hardening — it bites everywhere, not just new logins
 
 - `src/modules/tenants/tenantStatus.js` — in-memory status cache: `getStatus(tenantId)` → `'ACTIVE'|'SUSPENDED'` with a ~30s TTL (reads `Tenant` with `skipTenantScope`); `invalidate(tenantId)` clears one entry. Unknown tenants and DB errors **fail open** (ACTIVE) so a blip can't lock everyone out. TTL/invalidate behavior is unit-tested in `tenantStatus.test.js`.
-- `requireAuth` — after resolving `req.user.tenantId`, checks `getStatus`; a `SUSPENDED` tenant gets `403 {code: 'TENANT_SUSPENDED', message: 'This restaurant account is suspended'}`. **Exemptions**: platform admins (so operators keep working), the `/api/platform/*` routes, and `/api/auth/*` (login does its own check + 403; `/me` stays reachable). The `PATCH` `invalidate()` makes a suspension effective immediately (otherwise within the TTL window).
-- **Sockets** — the handshake rejects a suspended tenant's connection (platform admins exempt); `disconnectTenant(tenantId)` tears down all of a tenant's live sockets and is called by the `PATCH` on suspend.
+- `requireAuth` — after resolving `req.user.tenantId`, checks `getStatus`; a `SUSPENDED` tenant gets `403 {code: 'TENANT_SUSPENDED', message: 'This restaurant account is suspended'}`. **Exemptions**: the `/api/platform/*` routes (moot as of 6.4a — that surface no longer runs through `requireAuth` at all) and `/api/auth/*` (login does its own check + 403; `/me` stays reachable). The `PATCH` `invalidate()` makes a suspension effective immediately (otherwise within the TTL window).
+- **Sockets** — the handshake rejects a suspended tenant's connection; `disconnectTenant(tenantId)` tears down all of a tenant's live sockets and is called by the `PATCH` on suspend. (No more "platform admin" socket exemption — operators don't connect via the tenant socket at all.)
 - **Public + delivery** surfaces retain their per-request tenant-status `403` from Phase 6.1.
 
 ### Public-surface abuse guards
@@ -599,3 +600,91 @@ npm run delete:tenant -- <slug>    # scripts/deleteTenant.js (refuses 'default')
 ### Tenant profile sync
 
 - `PUT /api/settings` changing `restaurantName` also updates the matching `Tenant.name` (slug is immutable). Audited `tenant.renamed` when the name actually changes.
+
+## Phase 6.3: Email delivery, password reset, email verification, account self-service, tenant data export
+
+### Email provider architecture (`src/common/email/`)
+
+Mirrors the payments module's provider/factory pattern exactly:
+
+- `EmailProvider.js` — base class; `async send({to, subject, html, text})` throws `'Not implemented'`.
+- `ResendProvider.js` — real implementation against `POST https://api.resend.com/emails` (`Authorization: Bearer <RESEND_API_KEY>`). Uses Node 22's global `fetch` — no extra dependency. Parses the response; on a non-2xx it logs the HTTP status + Resend's error message (**never the API key**) and throws.
+- `SendgridProvider.js` / `PostmarkProvider.js` — stub classes (mirror `PineLabsProvider`/`WorldlineProvider` placeholders) so a future phase can wire up an alternate provider behind the same interface without touching any call site.
+- `EmailProviderFactory.js` — `get(providerName)` → `RESEND | SENDGRID | POSTMARK` provider instance.
+- `emailConfig.js` — **the single resolution point** for email config (`EMAIL_PROVIDER`, `RESEND_API_KEY`, `EMAIL_FROM`, `FRONTEND_URL`). Every send() call site goes through `getEmailConfig()`, never `process.env` directly. **As of Phase 6.4a**, `getEmailConfig()` checks the `PlatformSettings` document first and falls back to these env vars exactly as before when no override is configured — see Phase 6.4a below.
+- `templates.js` — `passwordResetEmail(link)` / `verificationEmail(link)`, each returning `{subject, html, text}` (inline-styled HTML, no build step, plain-text fallback).
+- `emailService.js` — `sendPasswordResetEmail` / `sendVerificationEmail`. **Never throws** — a failed send is caught and logged; the calling flow (forgot-password, register, resend-verification, change-email) always succeeds from the user's perspective.
+
+**To add a new provider** (e.g. finish `SendgridProvider`): implement `send()` against the vendor's API, register it in `EmailProviderFactory.js`'s `providers` map, set `EMAIL_PROVIDER=SENDGRID` — no other file changes.
+
+### Password reset (mirrors the approvals module's scoped-JWT pattern)
+
+- `POST /api/auth/forgot-password {email}` — public, rate-limited ~5/hr/IP. **Always** responds `200` with an identical generic body (`"If an account exists for that email, we've sent a reset link."`) whether or not the email exists — no enumeration side-channel, and deliberately **not** audit-logged (logging attempts would itself be a side-channel). If the user exists, signs a JWT `{sub, scope:'password-reset', iat}` (30 min expiry) and emails `${FRONTEND_URL}/reset-password?token=...`.
+- `POST /api/auth/reset-password {token, newPassword}` — public. Verifies the JWT + `scope`, resolves the user globally (`skipTenantScope`, same as login), and rejects **already-used** tokens via `passwordChangedAt` vs the token's `iat` (see invalidation design below). Requires `newPassword` ≥ 8 chars. Bumps `passwordChangedAt`. Audited `auth.password_reset`.
+
+**Token invalidation without a blacklist**: `User.passwordChangedAt` is bumped on every password change (reset **or** self-service `change-password`). `src/modules/auth/auth.tokenInvalidation.js` exports the pure comparison `isResetTokenInvalidated(passwordChangedAt, tokenIat)` — a reset token is rejected once the password has changed **after** it was issued. This means a `change-password` call also invalidates any outstanding, unused forgot-password token for that user — one shared field, no token store. Unit-tested in `auth.tokenInvalidation.test.js`.
+
+### Email verification (not a login gate)
+
+- `User.emailVerified` (Boolean, default `false`).
+- `POST /api/auth/register` best-effort emails a verification link after creating the tenant+owner (`{sub, email, scope:'email-verify'}`, 24h expiry, `${FRONTEND_URL}/verify-email?token=...`) — registration succeeds even if the send fails.
+- `POST /api/auth/verify-email {token}` — public. Verifies the JWT + scope, then checks `token.email === user's CURRENT email` (case-insensitive) via the pure `isVerifyTokenStale()` helper — rejects `400 'This link is no longer valid'` if the address changed since the link was sent (a stale link from before a `change-email` can't verify the wrong address). Sets `emailVerified = true`. Audited `auth.email_verified`.
+- `POST /api/auth/resend-verification` — authenticated, ~3/hr/user. `400 'Already verified'` if already verified.
+- Login/register/`me` payloads all include `emailVerified`.
+
+### Self-service account changes (authenticated, own account only)
+
+- `POST /api/auth/change-password {currentPassword, newPassword}` — bcrypt-verifies `currentPassword` against the full user doc, requires the new password ≥ 8 chars and different from the current one, bumps `passwordChangedAt` (invalidating outstanding reset tokens — see above). Audited `auth.password_changed`.
+- `POST /api/auth/change-email {newEmail, currentPassword}` — verifies `currentPassword`, checks global email uniqueness (`skipTenantScope`, excluding self), sets `emailVerified = false` and best-effort emails a fresh verification link to the new address. Audited `auth.email_changed`.
+
+### Tenant data export
+
+- `GET /api/settings/export` — authenticated, `settings.manage`. Uses the **ambient** tenant context (plain `find({})` — the tenant-scoping hooks already confine every query to the caller's tenant); deliberately does **not** use `skipTenantScope`. Bundles `{exportedAt, tenant:{name,slug}, settings, categories, menuItems, customers, invoices (last 90 days), branches, tables}` as a downloadable `Content-Disposition: attachment` JSON file. Strips `settings.approvals.pinHash` and any delivery/payment-provider secrets before export. Audited `tenant.data_exported`.
+
+### New env vars (`.env.example`)
+
+```
+EMAIL_PROVIDER=
+RESEND_API_KEY=
+EMAIL_FROM=
+FRONTEND_URL=
+```
+
+## Phase 6.4a: Platform operator identity, platform settings, GMV dashboard
+
+Fixes a real security flaw from Phase 6.2: the platform operator capability was a `platformAdmin: true` boolean bolted onto a TENANT-scoped user (`admin@pos.local`, who is also Arabian Cafe's restaurant admin). A leaked/compromised restaurant admin account could therefore carry platform-wide control. This phase **replaces** that mechanism entirely with a separate operator identity.
+
+### PlatformOperator — a completely separate identity from tenant Users
+
+- `src/modules/platform/platformOperator.model.js` — `{name, email (unique), passwordHash, active}`, `{tenantScoped: false}` (mirrors `Tenant`). No `tenantId`/`branchId`, no role, no relationship to any tenant whatsoever.
+- `POST /api/platform/auth/login {email, password}` — public, rate-limited (~20/15min/IP). Looks up a `PlatformOperator` by email — **never touches the `User` collection at all**. Rejects inactive operators. Signs `{sub: operator._id, scope: 'platform-operator'}` (12h expiry) with the same `jwtSecret` as tenant tokens — the strict scope check below is what provides the isolation, not a second secret.
+- `GET /api/platform/auth/me` — returns `{id, name, email}` for the authenticated operator.
+- `src/common/middleware/requirePlatformAuth.js` — replaces the deleted `requirePlatformAdmin.js`. Verifies the JWT, **requires `scope === 'platform-operator'`** (a normal tenant user's token has no such claim and is flatly `401`'d — this is the crux of the fix), then looks the operator up by id and requires it still exists and is `active`. Does **not** touch `requestContext`/tenant scoping at all — the platform surface has no ambient tenant.
+- `npm run create-operator` (`scripts/createOperator.js`) — bootstraps a real operator. Accepts `--email`/`--name` (or positional); the password is **always prompted interactively** (muted terminal echo on a real TTY) — never accepted as a CLI argument, since argv values land in shell history / `ps` output. `npm run delete-operator -- <email>` (`scripts/deleteOperator.js`) removes one.
+- `src/common/database/migrateRemovePlatformAdmin.js` (`npm run migrate:remove-platform-admin`) — idempotent, cross-tenant cleanup that unsets the retired `platformAdmin` field from every existing user document.
+- `admin@pos.local` / Arabian Cafe is now a plain, ordinary tenant — `npm run seed` no longer marks it `platformAdmin: true`.
+
+### Platform settings singleton
+
+- `src/modules/platform/platformSettings.model.js` — `{emailProvider: {provider, apiKey, fromAddress}, defaultTrialDays, supportEmail, maintenanceMode}`, `{tenantScoped: false}` singleton (mirrors `setting.model.js`'s per-tenant singleton pattern, except platform-wide).
+- `GET /api/platform/settings` — **never returns the raw `apiKey`**; returns `{emailProvider: {provider, fromAddress, hasApiKey, apiKeyPreview}}` where `apiKeyPreview` is a masked `"••••1234"` (last 4 chars) or `null`.
+- `PUT /api/platform/settings` — partial updates; upserts the singleton on first write. An empty/omitted `apiKey` means **"keep the existing key"**; a non-empty one replaces it. Refreshes `emailConfig.js`'s in-memory cache immediately so the change takes effect without a restart. Logs `[platform] settings updated by <operatorEmail>` — a proper platform-level audit trail (the existing `AuditLog` model is tenant/branch-scoped via the tenant plugin) is a good candidate for a future increment, deliberately out of scope here.
+- **Email config override** (`src/common/email/emailConfig.js`): `getEmailConfig()` stays **synchronous** (every existing call site calls it without `await` — this was preserved rather than reworked). Internally it now reads from an in-memory cache of the `PlatformSettings.emailProvider` doc, refreshed asynchronously on module load and whenever `PUT /api/platform/settings` changes it. When the cached override has **both** `provider` and `apiKey` set, it wins; otherwise (including an incomplete override, e.g. provider picked but no key saved) the original env-var behavior (`EMAIL_PROVIDER`, `RESEND_API_KEY`, `EMAIL_FROM`) resumes exactly as before — zero config changes required for the existing Resend setup to keep working. The resolution logic itself is extracted as a pure, unit-tested function (`resolveEmailConfig`, see `emailConfig.test.js`).
+- **Maintenance mode**: `assertNotInMaintenance()` in `auth.service.js` blocks tenant `login`/`register` with a `503` when `PlatformSettings.maintenanceMode` is `true` (fails open on unexpected DB errors). Platform operators are entirely unaffected — they never call through tenant auth at all.
+
+### GMV dashboard (honestly labeled — this is NOT platform revenue)
+
+There is no subscription billing yet, so what's measured is **gross transaction volume** flowing through tenant restaurants (`gmv`), not money the platform operator earns. `revenue30d` has been renamed `gmv` throughout.
+
+- `GET /api/platform/overview?range=today|7d|30d|all` (or `?from&to`) → `{tenantCount, active, suspended, signupsThisMonth, range, gmv, gmvTrend: [{date, gmv}]}`. Defaults to `30d` (matches the pre-6.4a default window).
+- `GET /api/platform/tenants?range=...&sort=gmv|created` → `{items: [{slug, name, ownerEmail, status, createdAt, userCount, invoiceCount, gmv}], range, sort}`. Defaults to `sort=created` (unchanged ordering); `sort=gmv` turns it into a GMV leaderboard.
+
+### Frontend
+
+- `src/store/platformAuthStore.js` (zustand, localStorage key `platform-auth`) and `src/services/platformApi.js` (dedicated axios instance, `baseURL: /api/platform`) are **completely independent** of the tenant app's `authStore`/`api.js` — a browser can hold a tenant session and a platform session at the same time without either clobbering the other.
+- `/platform/login` (public), `/platform` (Overview + tenants leaderboard + GMV trend chart), `/platform/settings` — all behind `PlatformProtectedRoute` (checks only `platformAuthStore`) → `PlatformLayout` (a minimal top-nav "Platform Console" shell, no tenant sidebar). The old `<ProtectedRoute requirePlatformAdmin>` wrapping inside the tenant app's route tree, and the "Platform" nav link (and all `user.platformAdmin` checks) in `AppLayout.jsx`, are removed — tenant users can never see or reach the platform surface again.
+
+### Deviations from the spec
+
+- The `PlatformLayout` nav shows **Overview** and **Settings** (not a separate "Tenants" link) — the tenants leaderboard lives on the Overview page alongside the stat cards/GMV chart, matching the pre-existing single-page design of `PlatformPage.jsx` rather than splitting it into a new page.
+- Platform-level audit logging for settings changes is a `console.log` line, not a formal `AuditLog` entry (see rationale above) — flagged as a follow-up.

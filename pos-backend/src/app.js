@@ -114,8 +114,9 @@ app.use('/api/approvals', approvalsRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/delivery', deliveryRoutes);
 app.use('/api/analytics', analyticsRoutes);
-// Phase 6.2 — cross-tenant platform-operator surface (requireAuth +
-// requirePlatformAdmin inside the router).
+// Phase 6.4a — cross-tenant platform-operator surface. Gated entirely by
+// requirePlatformAuth inside the router (a separate operator identity/token
+// scope, NOT requireAuth/tenant users) — see requirePlatformAuth.js.
 app.use('/api/platform', platformRoutes);
 
 app.use(notFound);

@@ -52,22 +52,21 @@ function initSocket(server) {
       role: payload.role,
       permissions: payload.permissions || [],
       tenantId: payload.tenantId || 'default',
-      platformAdmin: payload.platformAdmin === true,
     };
 
     // Phase 6.2 — reject the handshake outright if the socket's tenant is
-    // suspended (platform admins exempt), so a suspended restaurant can't hold
-    // a live realtime feed. Already-open sockets are torn down separately by
-    // disconnectTenant() when the PATCH suspends them.
-    if (!socket.user.platformAdmin) {
-      try {
-        const status = await tenantStatus.getStatus(socket.user.tenantId);
-        if (status === 'SUSPENDED') {
-          return next(new Error('This restaurant account is suspended'));
-        }
-      } catch (err) {
-        // fail open — getStatus already handled the error internally.
+    // suspended, so a suspended restaurant can't hold a live realtime feed.
+    // Already-open sockets are torn down separately by disconnectTenant()
+    // when the PATCH suspends them. (Phase 6.4a: platform operators are a
+    // separate identity that never connects via this tenant socket at all,
+    // so there's no more "platform admin" exemption to carry here.)
+    try {
+      const status = await tenantStatus.getStatus(socket.user.tenantId);
+      if (status === 'SUSPENDED') {
+        return next(new Error('This restaurant account is suspended'));
       }
+    } catch (err) {
+      // fail open — getStatus already handled the error internally.
     }
 
     next();
@@ -113,7 +112,7 @@ function disconnectTenant(tenantId) {
   if (!io) return 0;
   let count = 0;
   for (const socket of io.of('/').sockets.values()) {
-    if (socket.user && socket.user.tenantId === tenantId && !socket.user.platformAdmin) {
+    if (socket.user && socket.user.tenantId === tenantId) {
       socket.emit('suspended', { code: 'TENANT_SUSPENDED', message: 'This restaurant account is suspended' });
       socket.disconnect(true);
       count += 1;

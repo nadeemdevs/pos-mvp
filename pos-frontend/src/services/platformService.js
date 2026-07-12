@@ -1,14 +1,27 @@
-import api from './api'
+import platformApi from './platformApi'
 
-// Platform-operator surface. All endpoints require user.platformAdmin on the
-// backend (403 otherwise); the UI additionally gates the route/nav so these
-// are only ever called by the platform operator.
+// Platform-operator surface. Every call here goes through the dedicated
+// platformApi axios instance (separate token/session from the tenant app —
+// see services/platformApi.js). The backend gates all of it with
+// requirePlatformAuth against a wholly separate PlatformOperator identity,
+// not a tenant user's `platformAdmin` flag (that mechanism is retired).
 
-export const getPlatformOverview = () =>
-  api.get('/platform/overview').then((r) => r.data)
+export const platformLogin = (email, password) =>
+  platformApi.post('/auth/login', { email, password }).then((r) => r.data)
 
-export const getPlatformTenants = () =>
-  api.get('/platform/tenants').then((r) => r.data)
+export const getPlatformMe = () => platformApi.get('/auth/me').then((r) => r.data)
+
+export const getPlatformOverview = (range) =>
+  platformApi.get('/overview', { params: range ? { range } : undefined }).then((r) => r.data)
+
+export const getPlatformTenants = (range, sort) =>
+  platformApi
+    .get('/tenants', { params: { ...(range ? { range } : {}), ...(sort ? { sort } : {}) } })
+    .then((r) => r.data)
 
 export const setTenantStatus = (slug, status) =>
-  api.patch(`/platform/tenants/${slug}`, { status }).then((r) => r.data)
+  platformApi.patch(`/tenants/${slug}`, { status }).then((r) => r.data)
+
+export const getPlatformSettings = () => platformApi.get('/settings').then((r) => r.data)
+
+export const updatePlatformSettings = (payload) => platformApi.put('/settings', payload).then((r) => r.data)

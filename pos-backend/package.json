@@ -9,8 +9,11 @@
     "seed": "node src/common/database/seed.js",
     "migrate:tenant": "node src/common/database/migrateTenant.js",
     "migrate:tenant-indexes": "node src/common/database/migrateTenantIndexes.js",
+    "migrate:remove-platform-admin": "node src/common/database/migrateRemovePlatformAdmin.js",
     "sweep:isolation": "node scripts/tenantIsolationSweep.js",
-    "delete:tenant": "node scripts/deleteTenant.js"
+    "delete:tenant": "node scripts/deleteTenant.js",
+    "create-operator": "node scripts/createOperator.js",
+    "delete-operator": "node scripts/deleteOperator.js"
   },
   "keywords": [],
   "author": "",
