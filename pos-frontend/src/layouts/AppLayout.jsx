@@ -1,5 +1,26 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import {
+  BarChart3,
+  CalendarCheck,
+  ChefHat,
+  ChevronsLeft,
+  ChevronsRight,
+  Clock,
+  LayoutDashboard,
+  LayoutGrid,
+  Package,
+  Receipt,
+  ScrollText,
+  Settings as SettingsIcon,
+  ShieldCheck,
+  ShoppingCart,
+  Tags,
+  TrendingUp,
+  UserCog,
+  Users as UsersIcon,
+  UtensilsCrossed,
+} from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useBranchStore } from '../store/branchStore'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -61,36 +82,70 @@ function EmailVerificationBanner() {
 }
 
 const NAV_LINKS = [
-  { to: '/', label: 'Dashboard', permission: null },
-  { to: '/billing', label: 'Billing', permission: 'billing.create' },
-  { to: '/tables', label: 'Tables', permissions: ['orders.take', 'tables.manage'], dineIn: true },
-  { to: '/kitchen', label: 'Kitchen', permission: 'kitchen.view', dineIn: true },
+  { to: '/', label: 'Dashboard', permission: null, icon: LayoutDashboard },
+  { to: '/billing', label: 'Billing', permission: 'billing.create', icon: Receipt },
+  {
+    to: '/tables',
+    label: 'Tables',
+    permissions: ['orders.take', 'tables.manage'],
+    dineIn: true,
+    icon: LayoutGrid,
+  },
+  { to: '/kitchen', label: 'Kitchen', permission: 'kitchen.view', dineIn: true, icon: ChefHat },
   {
     to: '/reservations',
     label: 'Reservations',
     permissions: ['reservations.manage', 'orders.take'],
     feature: 'reservations',
+    icon: CalendarCheck,
   },
-  { to: '/shifts', label: 'Shifts', permission: 'shifts.manage', feature: 'shifts' },
-  { to: '/customers', label: 'Customers', permission: 'customers.manage' },
-  { to: '/menu', label: 'Menu', permission: 'menu.manage' },
-  { to: '/categories', label: 'Categories', permission: 'menu.manage' },
-  { to: '/reports', label: 'Reports', permission: 'reports.view' },
-  { to: '/analytics', label: 'Analytics', permission: 'analytics.view', feature: 'analytics' },
+  { to: '/shifts', label: 'Shifts', permission: 'shifts.manage', feature: 'shifts', icon: Clock },
+  { to: '/customers', label: 'Customers', permission: 'customers.manage', icon: UsersIcon },
+  { to: '/menu', label: 'Menu', permission: 'menu.manage', icon: UtensilsCrossed },
+  { to: '/categories', label: 'Categories', permission: 'menu.manage', icon: Tags },
+  { to: '/reports', label: 'Reports', permission: 'reports.view', icon: BarChart3 },
+  {
+    to: '/analytics',
+    label: 'Analytics',
+    permission: 'analytics.view',
+    feature: 'analytics',
+    icon: TrendingUp,
+  },
   {
     to: '/inventory',
     label: 'Inventory',
     permissions: ['inventory.manage', 'purchasing.manage'],
     feature: 'inventory',
+    icon: Package,
   },
-  { to: '/purchasing', label: 'Purchasing', permission: 'purchasing.manage', feature: 'inventory' },
-  { to: '/audit', label: 'Audit', permission: 'audit.view' },
-  { to: '/users', label: 'Users', permission: 'users.manage' },
-  { to: '/roles', label: 'Roles', permission: 'roles.manage' },
-  { to: '/settings', label: 'Settings', permission: 'settings.manage' },
+  {
+    to: '/purchasing',
+    label: 'Purchasing',
+    permission: 'purchasing.manage',
+    feature: 'inventory',
+    icon: ShoppingCart,
+  },
+  { to: '/audit', label: 'Audit', permission: 'audit.view', icon: ScrollText },
+  { to: '/users', label: 'Users', permission: 'users.manage', icon: UserCog },
+  { to: '/roles', label: 'Roles', permission: 'roles.manage', icon: ShieldCheck },
+  { to: '/settings', label: 'Settings', permission: 'settings.manage', icon: SettingsIcon },
 ]
 
+const NAV_COLLAPSED_KEY = 'appNavCollapsed'
+
 export default function AppLayout() {
+  const [navCollapsed, setNavCollapsed] = useState(
+    () => localStorage.getItem(NAV_COLLAPSED_KEY) === '1'
+  )
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(NAV_COLLAPSED_KEY, navCollapsed ? '1' : '0')
+    } catch {
+      // localStorage may be unavailable (private mode); non-fatal.
+    }
+  }, [navCollapsed])
+
   const user = useAuthStore((s) => s.user)
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const logout = useAuthStore((s) => s.logout)
@@ -187,23 +242,39 @@ export default function AppLayout() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="sidebar-brand">
-          {settings?.restaurantName || 'POS'}
+      <aside className={'sidebar' + (navCollapsed ? ' sidebar-collapsed' : '')}>
+        <div className="sidebar-brand" title={settings?.restaurantName || 'POS'}>
+          {navCollapsed
+            ? (settings?.restaurantName || 'POS').charAt(0).toUpperCase()
+            : settings?.restaurantName || 'POS'}
         </div>
+        <button
+          type="button"
+          className="sidebar-nav-toggle"
+          onClick={() => setNavCollapsed((c) => !c)}
+          title={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {navCollapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
+          {!navCollapsed && <span>Collapse</span>}
+        </button>
         <nav className="sidebar-nav">
-          {visibleLinks.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              end={link.to === '/'}
-              className={({ isActive }) =>
-                'sidebar-link' + (isActive ? ' active' : '')
-              }
-            >
-              {link.label}
-            </NavLink>
-          ))}
+          {visibleLinks.map((link) => {
+            const Icon = link.icon
+            return (
+              <NavLink
+                key={link.to}
+                to={link.to}
+                end={link.to === '/'}
+                title={link.label}
+                className={({ isActive }) =>
+                  'sidebar-link' + (isActive ? ' active' : '')
+                }
+              >
+                {Icon && <Icon size={18} className="sidebar-link-icon" />}
+                {!navCollapsed && <span className="sidebar-link-label">{link.label}</span>}
+              </NavLink>
+            )
+          })}
         </nav>
       </aside>
       <div className="app-main">

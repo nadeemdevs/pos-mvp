@@ -1,5 +1,21 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  Building2,
+  ChevronsLeft,
+  ChevronsRight,
+  CreditCard,
+  Download,
+  Gift,
+  Percent,
+  Printer,
+  QrCode,
+  ShieldCheck,
+  SlidersHorizontal,
+  Store,
+  Truck,
+  UserCircle,
+} from 'lucide-react'
 import { getSettings, updateSettings } from '../services/settingsService'
 import { testPrint } from '../services/printService'
 import { createBranch, getBranches, updateBranch } from '../services/branchService'
@@ -11,6 +27,41 @@ import { toast } from '../store/toastStore'
 import Spinner from '../components/Spinner'
 import Modal from '../components/Modal'
 import EmptyState from '../components/EmptyState'
+
+const NAV_SECTIONS_STORAGE_KEY = 'settingsNavCollapsed'
+
+// Maps each nav entry to its icon and label. The first 8 (up to 'printing')
+// all live inside the single shared <form> — they're rendered/hidden by
+// conditionally showing their JSX, never unmounted from the form, so the
+// shared save button covers all of them. The last 4 are independent,
+// self-contained cards with their own save flow (see AccountCard,
+// DataExportCard, DeliveryPartnersCard is actually part of the shared form —
+// ApprovalsCard, BranchesCard, AccountCard, DataExportCard below).
+const SETTINGS_SECTIONS = [
+  { key: 'general', label: 'General', icon: Store },
+  { key: 'payments', label: 'Payment Terminals', icon: CreditCard },
+  { key: 'discounts', label: 'Discounts & Rounding', icon: Percent },
+  { key: 'features', label: 'Features', icon: SlidersHorizontal },
+  { key: 'online', label: 'Online Ordering', icon: QrCode },
+  { key: 'delivery', label: 'Delivery Partners', icon: Truck },
+  { key: 'loyalty', label: 'Loyalty', icon: Gift },
+  { key: 'printing', label: 'Printing', icon: Printer },
+  { key: 'approvals', label: 'Approvals', icon: ShieldCheck, permission: 'settings.manage' },
+  { key: 'branches', label: 'Branches', icon: Building2, permission: 'branches.manage' },
+  { key: 'account', label: 'Account', icon: UserCircle },
+  { key: 'export', label: 'Data Export', icon: Download, permission: 'settings.manage' },
+]
+
+const SHARED_FORM_SECTIONS = new Set([
+  'general',
+  'payments',
+  'discounts',
+  'features',
+  'online',
+  'delivery',
+  'loyalty',
+  'printing',
+])
 
 const emptyForm = {
   restaurantName: '',
@@ -56,6 +107,11 @@ const emptyDelivery = {
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const [activeSection, setActiveSection] = useState('general')
+  const [navCollapsed, setNavCollapsed] = useState(
+    () => localStorage.getItem(NAV_SECTIONS_STORAGE_KEY) === '1'
+  )
   const [form, setForm] = useState(emptyForm)
   const [paymentProviders, setPaymentProviders] = useState(emptyPaymentProviders)
   const [discounts, setDiscounts] = useState(emptyDiscounts)
@@ -67,6 +123,22 @@ export default function SettingsPage() {
   const [browserTestPayload, setBrowserTestPayload] = useState(null)
   const [pin, setPin] = useState('')
   const [pinConfirm, setPinConfirm] = useState('')
+
+  const toggleNavCollapsed = () => {
+    setNavCollapsed((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem(NAV_SECTIONS_STORAGE_KEY, next ? '1' : '0')
+      } catch {
+        // localStorage may be unavailable (private mode); non-fatal.
+      }
+      return next
+    })
+  }
+
+  const visibleSections = SETTINGS_SECTIONS.filter(
+    (s) => !s.permission || hasPermission(s.permission)
+  )
 
   const { data, isLoading } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
 
@@ -323,8 +395,36 @@ export default function SettingsPage() {
       <h1 className="page-title">Settings</h1>
       <p className="page-subtitle">Restaurant profile and defaults</p>
 
+      <div className={`settings-layout${navCollapsed ? ' settings-layout-collapsed' : ''}`}>
+        <nav className="settings-nav" aria-label="Settings sections">
+          <button
+            type="button"
+            className="settings-nav-toggle"
+            onClick={toggleNavCollapsed}
+            title={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+          >
+            {navCollapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
+            {!navCollapsed && <span>Collapse</span>}
+          </button>
+          {visibleSections.map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              type="button"
+              title={label}
+              className={'settings-nav-item' + (activeSection === key ? ' active' : '')}
+              onClick={() => setActiveSection(key)}
+            >
+              <Icon size={18} className="settings-nav-icon" />
+              {!navCollapsed && <span>{label}</span>}
+            </button>
+          ))}
+        </nav>
+
+        <div className="settings-content">
       <form onSubmit={handleSubmit}>
+        {activeSection === 'general' && (
         <div className="card settings-form">
+          <h2>General</h2>
           <label className="field">
             <span>Restaurant Name</span>
             <input
@@ -373,7 +473,9 @@ export default function SettingsPage() {
             />
           </label>
         </div>
+        )}
 
+        {activeSection === 'payments' && (
         <div className="card settings-form payment-terminals-card">
           <h2>Payment Terminals</h2>
           <p className="page-subtitle">
@@ -517,7 +619,10 @@ export default function SettingsPage() {
             )
           })}
         </div>
+        )}
 
+        {activeSection === 'discounts' && (
+        <>
         <div className="card settings-form">
           <h2>Discount Rules</h2>
           <label className="field">
@@ -590,7 +695,10 @@ export default function SettingsPage() {
           </label>
           <p className="page-subtitle">Round totals to the nearest ₹1</p>
         </div>
+        </>
+        )}
 
+        {activeSection === 'features' && (
         <div className="card settings-form">
           <h2>Features</h2>
           <label className="checkbox-field">
@@ -650,7 +758,9 @@ export default function SettingsPage() {
             <span>Enable Shifts (cash reconciliation)</span>
           </label>
         </div>
+        )}
 
+        {activeSection === 'online' && (
         <div className="card settings-form">
           <h2>Online Ordering</h2>
           <label className="checkbox-field">
@@ -665,10 +775,13 @@ export default function SettingsPage() {
             Guests scan a table QR to order; items arrive as unfired lines for staff to fire.
           </p>
         </div>
+        )}
 
-        <DeliveryPartnersCard delivery={delivery} onUpdate={updateDeliveryField} />
+        {activeSection === 'delivery' && (
+          <DeliveryPartnersCard delivery={delivery} onUpdate={updateDeliveryField} />
+        )}
 
-        {features.loyalty && (
+        {activeSection === 'loyalty' && features.loyalty && (
           <div className="card settings-form">
             <h2>Loyalty</h2>
             <div className="field-row">
@@ -736,6 +849,7 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {activeSection === 'printing' && (
         <div className="card settings-form printing-card">
           <h2>Printing</h2>
           <p className="page-subtitle">
@@ -793,12 +907,15 @@ export default function SettingsPage() {
             </div>
           ))}
         </div>
+        )}
 
-        <div className="modal-actions">
-          <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
-            {mutation.isPending ? 'Saving…' : 'Save Settings'}
-          </button>
-        </div>
+        {SHARED_FORM_SECTIONS.has(activeSection) && (
+          <div className="settings-savebar">
+            <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
+              {mutation.isPending ? 'Saving…' : 'Save Settings'}
+            </button>
+          </div>
+        )}
       </form>
 
       {browserTestPayload && (
@@ -811,21 +928,25 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <ApprovalsCard
-        pin={pin}
-        pinConfirm={pinConfirm}
-        setPin={setPin}
-        setPinConfirm={setPinConfirm}
-        onSubmit={handlePinSubmit}
-        isSubmitting={pinMutation.isPending}
-        maxPercent={discounts.maxPercent}
-      />
+      {activeSection === 'approvals' && (
+        <ApprovalsCard
+          pin={pin}
+          pinConfirm={pinConfirm}
+          setPin={setPin}
+          setPinConfirm={setPinConfirm}
+          onSubmit={handlePinSubmit}
+          isSubmitting={pinMutation.isPending}
+          maxPercent={discounts.maxPercent}
+        />
+      )}
 
-      <AccountCard />
+      {activeSection === 'account' && <AccountCard />}
 
-      <DataExportCard />
+      {activeSection === 'export' && <DataExportCard />}
 
-      <BranchesCard />
+      {activeSection === 'branches' && <BranchesCard />}
+        </div>
+      </div>
     </div>
   )
 }
