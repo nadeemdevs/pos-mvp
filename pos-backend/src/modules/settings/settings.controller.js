@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const Setting = require('./setting.model');
+const Tenant = require('../tenants/tenant.model');
 const asyncHandler = require('../../common/utils/asyncHandler');
 const auditService = require('../audit/audit.service');
 
@@ -171,6 +172,7 @@ const updateSettings = asyncHandler(async (req, res) => {
     settings = await Setting.create({});
   }
 
+  const previousName = settings.restaurantName;
   settings.restaurantName = restaurantName ?? settings.restaurantName;
   settings.address = address ?? settings.address;
   settings.phone = phone ?? settings.phone;
@@ -211,6 +213,26 @@ const updateSettings = asyncHandler(async (req, res) => {
   }
 
   await settings.save();
+
+  // Phase 6.2 — keep the platform Tenant.name in sync when the restaurant is
+  // renamed via settings (slug is immutable, so only the display name moves).
+  // The Tenant registry is not tenant-scoped, so resolve it by the caller's
+  // tenantId explicitly.
+  if (settings.restaurantName !== previousName) {
+    const tenantId = req.tenantId || (req.user && req.user.tenantId) || 'default';
+    const tenant = await Tenant.findOne({ slug: tenantId });
+    if (tenant && tenant.name !== settings.restaurantName) {
+      tenant.name = settings.restaurantName;
+      await tenant.save();
+      auditService.log({
+        req,
+        action: 'tenant.renamed',
+        entity: 'Tenant',
+        entityId: tenant._id,
+        meta: { slug: tenantId, from: previousName, to: settings.restaurantName },
+      });
+    }
+  }
 
   auditService.log({
     req,

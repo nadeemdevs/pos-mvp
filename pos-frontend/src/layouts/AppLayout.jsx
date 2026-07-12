@@ -118,6 +118,21 @@ export default function AppLayout() {
               {link.label}
             </NavLink>
           ))}
+          {/* Platform-operator entry: only the platform admin ever sees this.
+              Set apart from tenant navigation by a divider. */}
+          {user?.platformAdmin && (
+            <>
+              <div className="sidebar-divider" />
+              <NavLink
+                to="/platform"
+                className={({ isActive }) =>
+                  'sidebar-link sidebar-link-platform' + (isActive ? ' active' : '')
+                }
+              >
+                Platform
+              </NavLink>
+            </>
+          )}
         </nav>
       </aside>
       <div className="app-main">

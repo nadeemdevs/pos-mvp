@@ -2,6 +2,7 @@ const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 const requestContext = require('../common/requestContext');
+const tenantStatus = require('../modules/tenants/tenantStatus');
 
 let io = null;
 
@@ -21,31 +22,55 @@ function currentTenantId() {
 
 function initSocket(server) {
   io = new Server(server, {
-    cors: { origin: '*' },
+    cors: {
+      origin:
+        config.corsOrigin === '*'
+          ? '*'
+          : config.corsOrigin.split(',').map((o) => o.trim()).filter(Boolean),
+    },
   });
 
   // JWT auth: client must connect with `auth: { token }` (same token as the
   // REST API's Authorization: Bearer header). Invalid/missing token -> the
   // connection is rejected before the 'connection' event fires.
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth && socket.handshake.auth.token;
     if (!token) {
       return next(new Error('Authentication required'));
     }
 
+    let payload;
     try {
-      const payload = jwt.verify(token, config.jwtSecret);
-      socket.user = {
-        id: payload.id,
-        name: payload.name,
-        role: payload.role,
-        permissions: payload.permissions || [],
-        tenantId: payload.tenantId || 'default',
-      };
-      next();
+      payload = jwt.verify(token, config.jwtSecret);
     } catch (err) {
-      next(new Error('Invalid or expired token'));
+      return next(new Error('Invalid or expired token'));
     }
+
+    socket.user = {
+      id: payload.id,
+      name: payload.name,
+      role: payload.role,
+      permissions: payload.permissions || [],
+      tenantId: payload.tenantId || 'default',
+      platformAdmin: payload.platformAdmin === true,
+    };
+
+    // Phase 6.2 — reject the handshake outright if the socket's tenant is
+    // suspended (platform admins exempt), so a suspended restaurant can't hold
+    // a live realtime feed. Already-open sockets are torn down separately by
+    // disconnectTenant() when the PATCH suspends them.
+    if (!socket.user.platformAdmin) {
+      try {
+        const status = await tenantStatus.getStatus(socket.user.tenantId);
+        if (status === 'SUSPENDED') {
+          return next(new Error('This restaurant account is suspended'));
+        }
+      } catch (err) {
+        // fail open — getStatus already handled the error internally.
+      }
+    }
+
+    next();
   });
 
   io.on('connection', (socket) => {
@@ -79,6 +104,24 @@ function getIO() {
   return io;
 }
 
+// Phase 6.2 — force-disconnect every live socket belonging to a tenant.
+// Called by PATCH /api/platform/tenants/:slug when a tenant is suspended, so
+// existing realtime connections drop immediately instead of lingering until
+// their next reconnect. Emits a 'suspended' event first so a well-behaved
+// client can show a message before the socket closes.
+function disconnectTenant(tenantId) {
+  if (!io) return 0;
+  let count = 0;
+  for (const socket of io.of('/').sockets.values()) {
+    if (socket.user && socket.user.tenantId === tenantId && !socket.user.platformAdmin) {
+      socket.emit('suspended', { code: 'TENANT_SUSPENDED', message: 'This restaurant account is suspended' });
+      socket.disconnect(true);
+      count += 1;
+    }
+  }
+  return count;
+}
+
 // Room-scoped emit helper. Callers keep passing the logical room name
 // ('floor'/'kitchen') — the current tenant is appended automatically from
 // the request context. Swallows the "not initialized" error so it's safe
@@ -91,4 +134,4 @@ function emitTo(room, event, payload) {
   }
 }
 
-module.exports = { initSocket, getIO, emitTo };
+module.exports = { initSocket, getIO, emitTo, disconnectTenant };

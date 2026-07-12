@@ -2,6 +2,16 @@ const jwt = require('jsonwebtoken');
 const config = require('../../config');
 const requestContext = require('../requestContext');
 const { resolveBranchId } = require('./tenantContext');
+const tenantStatus = require('../../modules/tenants/tenantStatus');
+
+// Routes that must stay reachable even when the caller's tenant is suspended:
+// the platform surface (operated by platform admins across tenants) and the
+// auth endpoints (login does its own suspension check + returns its own 403;
+// /me must keep working so a suspended owner can still see who they are).
+function isSuspensionExempt(req) {
+  const url = req.originalUrl || req.url || '';
+  return url.startsWith('/api/platform') || url.startsWith('/api/auth');
+}
 
 // Phase 6.1: the JWT carries tenantId. The global tenantContext middleware
 // runs BEFORE this one (req.user doesn't exist yet there), so it can only
@@ -31,9 +41,28 @@ async function requireAuth(req, res, next) {
     role: payload.role,
     permissions: payload.permissions || [],
     tenantId: payload.tenantId || 'default',
+    platformAdmin: payload.platformAdmin === true,
   };
 
   req.tenantId = req.user.tenantId;
+
+  // Phase 6.2 — suspension gate. Once we know the caller's tenant, refuse the
+  // whole authenticated API when that tenant is SUSPENDED, so suspension bites
+  // on EXISTING tokens too (not just at login). Platform admins and the
+  // exempt routes (see isSuspensionExempt) always pass through.
+  if (!req.user.platformAdmin && !isSuspensionExempt(req)) {
+    try {
+      const status = await tenantStatus.getStatus(req.tenantId);
+      if (status === 'SUSPENDED') {
+        return res
+          .status(403)
+          .json({ code: 'TENANT_SUSPENDED', message: 'This restaurant account is suspended' });
+      }
+    } catch (err) {
+      // getStatus already fails open internally; nothing to do here.
+    }
+  }
+
   try {
     req.branchId = await resolveBranchId(req.tenantId, req.headers['x-branch-id']);
   } catch (err) {

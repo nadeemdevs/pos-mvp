@@ -39,7 +39,32 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status
+    const code = error.response?.data?.code
+
+    // Tenant was suspended by the platform operator — can land mid-session on
+    // any authenticated request, not just at login. Log out and bounce to
+    // /login, leaving a one-shot notice for the login page to surface. We
+    // must NOT treat ordinary 403s (plain permission denials) this way — only
+    // the explicit TENANT_SUSPENDED code.
+    if (status === 403 && code === 'TENANT_SUSPENDED') {
+      try {
+        sessionStorage.setItem(
+          'suspendedNotice',
+          error.response?.data?.message ||
+            'This restaurant has been suspended. Please contact support.',
+        )
+      } catch {
+        // sessionStorage may be unavailable (private mode); non-fatal.
+      }
+      useAuthStore.getState().logout()
+      if (window.location.pathname !== '/login' && !window.location.pathname.startsWith('/qr')) {
+        window.location.href = '/login'
+      }
+      return Promise.reject(error)
+    }
+
+    if (status === 401) {
       useAuthStore.getState().logout()
       // The public QR-ordering surface is mounted outside the authenticated
       // app and must never be bounced to the staff login screen.

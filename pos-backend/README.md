@@ -5,6 +5,8 @@ Restaurant POS backend supporting two modes. Express + MongoDB (Mongoose) + Sock
 - **Mode 2** — dine-in table service (`/api/tables`, `/api/orders`, `/api/kots`, `/api/print`), added in Phase 4. Gated for UI purposes by `settings.features.dineIn` (the APIs themselves are always available).
 - **Phase 5.1 (ERP core)** — multi-tenant/branch scaffolding, an in-process event bus, an audit trail, and inventory/recipes/purchasing (`/api/branches`, `/api/audit`, `/api/inventory`, `/api/vendors`, `/api/purchase-orders`). See [Phase 5.1: ERP core](#phase-51-erp-core) below.
 - **Phase 5.3** — guest-facing QR/online ordering (`/api/public/*`), delivery-partner webhook stubs (`/api/delivery/webhook/:partner`), an analytics module (`/api/analytics/*`), and real branch-data isolation (previously the branch fields existed but weren't enforced in queries). See [Phase 5.3](#phase-53--qronline-ordering-delivery-webhooks-analytics-branch-hardening) below.
+- **Phase 6.1** — true multi-tenancy: isolated per-tenant data, public tenant signup, per-tenant socket rooms. See [Phase 6.1](#phase-61-true-multi-tenancy) below.
+- **Phase 6.2** — cross-tenant platform-admin surface (`/api/platform/*`), suspension enforced on every authenticated request + live sockets, per-tenant+IP public rate limiting, and production config hardening. See [Phase 6.2](#phase-62-platform-admin-suspension-hardening-abuse-guards) below.
 
 ## Setup
 
@@ -20,7 +22,11 @@ PORT=5001
 MONGO_URI=mongodb://127.0.0.1:27017/pos_mvp
 JWT_SECRET=dev-secret-change-me
 JWT_EXPIRES_IN=12h
+CORS_ORIGIN=*            # comma-separated origin list in prod; '*' in dev
+NODE_ENV=               # set to 'production' in prod
 ```
+
+> **Production hardening (Phase 6.2):** when `NODE_ENV=production`, the server **refuses to boot** if `JWT_SECRET` is still the dev default `dev-secret-change-me` — set a strong secret first. `CORS_ORIGIN` restricts allowed origins (both REST and Socket.IO); leave it `*` in dev. With `NODE_ENV` unset, local behavior is unchanged.
 
 ## Seed data
 
@@ -533,7 +539,7 @@ Every restaurant (tenant) now has fully isolated data, its own signup, and its o
 - `src/modules/tenants/tenant.model.js` — `Tenant {name, slug (unique), ownerEmail, status: ACTIVE|SUSPENDED}`. The ONE model that is **not** tenant-scoped (`{tenantScoped: false}` schema option — no `tenantId`/`branchId` fields, no scoping hooks).
 - `POST /api/auth/register` (public, rate-limited 10/hr/IP) `{restaurantName, ownerName, email, password (≥8)}` → creates the Tenant (slug generated from the name, random 4-hex suffix on collision — `src/modules/tenants/slug.js`), provisions its baseline docs, and responds exactly like login (`{token, user}`) so the client auto-logs-in. Email is unique **globally** across all tenants (409 `An account with this email already exists`). Audited as `tenant.registered`.
 - **Provisioning** — `src/common/database/provisionTenant.js` `provisionTenant({tenantId, restaurantName, owner})`: creates, for that tenant, the 5 roles + permission sets, the settings doc, the `main` branch and the owner user as Admin. Upsert-safe; `npm run seed` now just ensures the `default` Tenant record and calls this for `'default'` (plus the demo menu) — a no-op on live data.
-- **Suspension**: set `Tenant.status = 'SUSPENDED'` → login, public QR ordering and delivery webhooks all respond `403 This restaurant account is suspended`.
+- **Suspension**: set `Tenant.status = 'SUSPENDED'` → login, public QR ordering and delivery webhooks all respond `403 This restaurant account is suspended`. Phase 6.2 extends this to **every authenticated request and live socket** (see below).
 
 ### Tenant scoping (the isolation mechanism)
 
@@ -566,3 +572,30 @@ npm run delete:tenant -- <slug>    # scripts/deleteTenant.js (refuses 'default')
 ```
 - The **isolation sweep** logs in as both the default admin and a second tenant's owner (registering `TEST Bistro` via `/api/auth/register` if needed), hits every authenticated GET list endpoint with both tokens and asserts zero shared document `_id`s (plus: distinct settings docs, exactly the 5 provisioned roles / 1 branch / 1 user for the fresh tenant). Prints PASS/FAIL per route and exits non-zero on any leak.
 - **deleteTenant** hard-deletes a tenant and every document carrying its `tenantId` across all collections (plus its tenant-suffixed counters and the Tenant record itself).
+
+## Phase 6.2: Platform admin, suspension hardening, abuse guards
+
+### Platform admin (cross-tenant super-admin)
+
+- `User.platformAdmin` (Boolean, default `false`) — a cross-tenant super-admin flag. It is **settable only via seed/scripts**: every API path (`register`, user-create, user-update) uses explicit field lists that omit it, so POSTing `{platformAdmin: true}` is silently ignored (unit-tested in `users.controller.test.js`). `npm run seed` marks `admin@pos.local` (tenant `default`) `platformAdmin: true` (upsert-safe). The flag is carried in the JWT and returned in the login/`me` payload so the frontend can gate the platform nav.
+- `src/common/middleware/requirePlatformAdmin.js` — runs after `requireAuth`; `403` unless `req.user.platformAdmin === true`.
+- **`/api/platform/*`** (`src/modules/platform/`, `requireAuth + requirePlatformAdmin`) — operates **across tenants**; every query passes `skipTenantScope` explicitly (never relies on the ambient context):
+  - `GET /api/platform/overview` → `{tenantCount, active, suspended, signupsThisMonth, revenue30d}` (`revenue30d` = sum of PAID invoices platform-wide in the last 30 days).
+  - `GET /api/platform/tenants` → per-tenant `[{slug, name, ownerEmail, status, createdAt, userCount, invoiceCount, revenue30d}]`, newest first. Counts come from grouped aggregates over users/invoices joined to the tenant list in JS (no N+1).
+  - `PATCH /api/platform/tenants/:slug` `{status: 'ACTIVE'|'SUSPENDED'}` → updates `Tenant.status`. **Refuses to suspend `default`** (`400 The primary tenant cannot be suspended`). On change: invalidates the status cache and — if suspending — force-disconnects that tenant's live sockets. Audited `platform.tenant.suspended` / `platform.tenant.activated`.
+
+### Suspension hardening — it bites everywhere, not just new logins
+
+- `src/modules/tenants/tenantStatus.js` — in-memory status cache: `getStatus(tenantId)` → `'ACTIVE'|'SUSPENDED'` with a ~30s TTL (reads `Tenant` with `skipTenantScope`); `invalidate(tenantId)` clears one entry. Unknown tenants and DB errors **fail open** (ACTIVE) so a blip can't lock everyone out. TTL/invalidate behavior is unit-tested in `tenantStatus.test.js`.
+- `requireAuth` — after resolving `req.user.tenantId`, checks `getStatus`; a `SUSPENDED` tenant gets `403 {code: 'TENANT_SUSPENDED', message: 'This restaurant account is suspended'}`. **Exemptions**: platform admins (so operators keep working), the `/api/platform/*` routes, and `/api/auth/*` (login does its own check + 403; `/me` stays reachable). The `PATCH` `invalidate()` makes a suspension effective immediately (otherwise within the TTL window).
+- **Sockets** — the handshake rejects a suspended tenant's connection (platform admins exempt); `disconnectTenant(tenantId)` tears down all of a tenant's live sockets and is called by the `PATCH` on suspend.
+- **Public + delivery** surfaces retain their per-request tenant-status `403` from Phase 6.1.
+
+### Public-surface abuse guards
+
+- **QR public endpoints** (`/api/public/*`, ~60/min) are rate-limited keyed per **tenant+IP** rather than IP alone, so one busy restaurant can't exhaust another's window. The limiter runs before DB tenant resolution, so the key combines the request's QR/order identifier (`qrToken` / order id — which maps to a tenant) with the client IP (via `ipKeyGenerator` for IPv6 safety).
+- **Registration** stays rate-limited at ~10/hr/IP.
+
+### Tenant profile sync
+
+- `PUT /api/settings` changing `restaurantName` also updates the matching `Tenant.name` (slug is immutable). Audited `tenant.renamed` when the name actually changes.

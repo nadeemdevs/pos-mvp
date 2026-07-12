@@ -1,5 +1,6 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = require('express-rate-limit');
 const asyncHandler = require('../../common/utils/asyncHandler');
 const requestContext = require('../../common/requestContext');
 const Table = require('../tables/table.model');
@@ -22,11 +23,29 @@ const router = express.Router();
 // order creation and status queries are all confined to the right tenant.
 // Two gates apply per tenant: the tenant must not be SUSPENDED, and its
 // settings.features.onlineOrdering flag must be on.
+// Phase 6.2 — key the limiter per TENANT+IP so one busy restaurant's guests
+// can't exhaust the shared window for every other restaurant. This limiter
+// runs BEFORE the tenant is resolved from the DB, so we key on the QR/order
+// identifier present in the request (qrToken from the param/query/body, or the
+// order id) — which uniquely maps to a tenant — combined with the client IP.
+// When no identifier is present we fall back to IP only. ipKeyGenerator
+// normalizes IPv6 addresses (required by express-rate-limit v7+).
+function publicRateKey(req) {
+  const token =
+    req.params.qrToken ||
+    req.query.token ||
+    (req.body && req.body.qrToken) ||
+    req.params.id ||
+    'anon';
+  return `${token}:${ipKeyGenerator(req.ip)}`;
+}
+
 const publicLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: publicRateKey,
   message: { message: 'Too many requests — please slow down' },
 });
 

@@ -117,6 +117,15 @@ async function run() {
   });
   console.log('[seed] roles, settings, branch, admin user upserted (admin@pos.local / admin123)');
 
+  // Phase 6.2 — the default tenant's admin is the platform (cross-tenant)
+  // super-admin. This is the ONLY sanctioned way to grant platformAdmin (no
+  // API path can set it). Upsert-safe: re-seeding just re-asserts the flag.
+  const User = require('../../modules/users/user.model');
+  await requestContext.run({ tenantId: 'default', branchId: 'main' }, () =>
+    User.updateOne({ email: 'admin@pos.local' }, { $set: { platformAdmin: true } })
+  );
+  console.log('[seed] admin@pos.local marked platformAdmin:true');
+
   await seedMenu();
   console.log('[seed] categories and menu items upserted');
 

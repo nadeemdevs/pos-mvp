@@ -15,6 +15,10 @@ function issueToken(user, roleName, permissions) {
       role: roleName,
       permissions,
       tenantId: user.tenantId || 'default',
+      // Phase 6.2 — carried in the JWT so requireAuth/requirePlatformAdmin can
+      // gate the platform surface (and exempt platform admins from the tenant
+      // suspension check) without a DB hit on every request.
+      platformAdmin: user.platformAdmin === true,
     },
     config.jwtSecret,
     { expiresIn: config.jwtExpiresIn }
@@ -29,6 +33,8 @@ function userResponse(user, roleName, permissions) {
     role: roleName,
     permissions,
     tenantId: user.tenantId || 'default',
+    // Exposed to the client so the frontend can gate the platform nav/page.
+    platformAdmin: user.platformAdmin === true,
   };
 }
 
@@ -137,6 +143,7 @@ async function getMe(userId) {
     role: user.role ? user.role.name : null,
     permissions: user.role ? user.role.permissions : [],
     tenantId: user.tenantId || 'default',
+    platformAdmin: user.platformAdmin === true,
   };
 }
 

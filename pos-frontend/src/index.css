@@ -1223,6 +1223,41 @@ button, input, select, textarea {
   color: var(--danger);
 }
 
+/* ---------- Platform admin ---------- */
+
+.platform-tenant-slug {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.sidebar-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 10px 12px;
+}
+
+.sidebar-link-platform {
+  color: #fbbf24;
+}
+
+/* Login: mid-session suspension notice */
+
+.login-banner {
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 18px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.login-banner-danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
 /* ---------- Settings: payment terminals ---------- */
 
 .payment-terminals-card .page-subtitle {

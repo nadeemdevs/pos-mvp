@@ -22,6 +22,7 @@ import AuditPage from '../pages/AuditPage'
 import ReservationsPage from '../pages/ReservationsPage'
 import ShiftsPage from '../pages/ShiftsPage'
 import AnalyticsPage from '../pages/AnalyticsPage'
+import PlatformPage from '../pages/PlatformPage'
 import QrOrderPage from '../pages/qr/QrOrderPage'
 
 export const router = createBrowserRouter([
@@ -140,6 +141,10 @@ export const router = createBrowserRouter([
           {
             element: <ProtectedRoute permission="settings.manage" />,
             children: [{ path: '/settings', element: <SettingsPage /> }],
+          },
+          {
+            element: <ProtectedRoute requirePlatformAdmin />,
+            children: [{ path: '/platform', element: <PlatformPage /> }],
           },
         ],
       },
