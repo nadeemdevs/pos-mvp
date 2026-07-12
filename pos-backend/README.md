@@ -735,3 +735,44 @@ Builds on 6.4a's `PlatformOperator` identity/`requirePlatformAuth` gate without 
 
 - Tenant suspend/activate reuses the existing `PATCH /api/platform/tenants/:slug` endpoint rather than adding separate `POST .../suspend` / `.../activate` routes, per the spec's own "prefer reusing what exists" guidance.
 - Tenant impersonation is explicitly out of scope for this phase — only a commented placeholder nav slot exists in `PlatformLayout.jsx`, no functionality behind it.
+
+## Phase 6.5: Per-user branch locking
+
+Closes a real WITHIN-tenant access-control gap: branch data isolation (tables/orders/invoices/inventory scoped by `x-branch-id` + the branch-scoped schema hooks, Phase 5.3/6.1) worked correctly, but nothing gated **which** branch a given user was allowed to point that header at — any authenticated staff member (not just Admin) could pick any of their tenant's branches in the UI selector, and the backend honored it. This phase adds a per-user home-branch lock, on by default, with a tenant-wide opt-in escape hatch.
+
+### The model
+
+- `User.branchId` — already existed on every model via the Phase 6.1 `tenantPlugin` global schema field (default `'main'`); this phase is the first to actually *use* it as the user's HOME branch. No migration needed — existing users already default to `'main'`.
+- `POST/PUT /api/users` (`users.manage`-gated, unchanged route) now accept an optional `branchId` in the body, validated against the tenant's actual ACTIVE `Branch` codes (reuses the same cache `tenantContext.js` already keeps for the `x-branch-id` header — see `getActiveBranchCodes`, now also exported). An unknown/inactive code is a 400. Omitted on create → defaults to `'main'` (unchanged behavior for existing single-branch tenants). User list/detail responses include `branchId` (no change needed — it's a plain schema field, not stripped by `select('-passwordHash')`).
+- The JWT (`issueToken` in `auth.service.js`) now carries the user's `branchId` alongside `id/name/role/permissions/tenantId`, so the enforcement decision below never needs a DB hit.
+- New tenant setting: `settings.branchAccess.staffCanSwitchBranches` (default **`false`** — locked-by-default is the safe default). Wired into the existing non-clobbering `PUT /api/settings` merge pattern (`mergeBranchAccess`, same shape as `mergeFeatures`/`mergeDelivery`/etc.).
+
+### The enforcement rule (the part that actually matters)
+
+Lives in `src/common/middleware/tenantContext.js`, inside `resolveBranchId(tenantId, header, user)` — the same function both the global pre-auth `tenantContext` middleware and `requireAuth` (`auth.js`) call to resolve `req.branchId`. When `user` (i.e. `req.user`, carrying `permissions` + `branchId` from the JWT) is available, the decision is delegated to a small pure function, `computeResolvedBranchId`, so it's directly unit-testable without Express or Mongo:
+
+```js
+function computeResolvedBranchId({ isPrivileged, tenantAllowsSwitching, userHomeBranch, headerResolvedBranchId }) {
+  if (isPrivileged || tenantAllowsSwitching) return headerResolvedBranchId;
+  return userHomeBranch || 'main';
+}
+```
+
+- `isPrivileged` = the caller's JWT permissions include `branches.manage` (the existing permission already held by Admin/Manager roles — no new permission was invented).
+- `tenantAllowsSwitching` = `settings.branchAccess.staffCanSwitchBranches`, read through a per-tenant in-process cache (`getStaffCanSwitchBranches`, 30s TTL — mirrors the `getActiveBranchCodes`/`tenantStatus.js` cache pattern already in the codebase) so this doesn't cost a Mongo round trip on every request. `PUT /api/settings` calls `invalidateBranchAccess(tenantId)` the instant the flag changes, so a toggle takes effect on the very next request rather than waiting out the TTL.
+- `headerResolvedBranchId` = the `x-branch-id` header resolved exactly as before (case-insensitive match against the tenant's active `Branch.code`s, defaulting to `'main'` if absent/unknown).
+
+**Result:** a `branches.manage` holder, or any staff member once the tenant opts in, gets whatever the header resolved to (full roaming, unchanged from before this phase). Everyone else is **silently pinned to their own home branch** — a stale or malicious `x-branch-id` header is never honored, but it also never produces an error; an innocent stale-cache client just quietly keeps working against its own branch. Public/webhook/platform routes are untouched — this only applies to the authenticated tenant-user request path.
+
+Unit tests: `src/common/middleware/tenantContext.test.js` covers all four branches of the decision table (privileged bypass, locked default, opt-in escape hatch, re-locked after revert) plus the `userHomeBranch` fallback.
+
+### Frontend
+
+- `authStore.js#login` forces `branchStore`'s `activeBranch` to the user's own `branchId` immediately at login if they lack `branches.manage` — this specifically guards against a stale `activeBranch` persisted in `localStorage` from an earlier session in the same browser under different permissions (e.g. a former Admin).
+- `AppLayout.jsx` computes `canSwitchBranches = hasPermission('branches.manage') || settings?.branchAccess?.staffCanSwitchBranches` and re-applies the same forced-reset whenever that flag is `false` (covers the case where `settings` loads after the initial login-time check). When `canSwitchBranches` is true and there's more than one active branch, the existing `<select>` is shown unchanged; otherwise a plain read-only branch-name label replaces it (only rendered at all when there's more than one branch, so single-branch tenants see zero change).
+- `UsersPage.jsx` — the create/edit user form gained a Branch `<select>` (populated from `GET /api/branches`, defaulting to `main`), and the users table gained a Branch column.
+- `SettingsPage.jsx` — the existing Branches card gained a checkbox, "Allow staff to switch between branches," with the explanatory line "When off, each staff member can only work in the branch they're assigned to in Users."
+
+### Deviations from the spec (6.5)
+
+- None — implemented as specified. `branches.manage` was confirmed as an existing permission (held by Admin/Manager, excluded from the rest of Manager's grant list alongside `roles.manage`/`audit.view`) and reused as the bypass gate rather than adding a new permission.

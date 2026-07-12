@@ -9,6 +9,7 @@ const Branch = require('../branches/branch.model');
 const Table = require('../tables/table.model');
 const asyncHandler = require('../../common/utils/asyncHandler');
 const auditService = require('../audit/audit.service');
+const { invalidateBranchAccess } = require('../../common/middleware/tenantContext');
 
 // pinHash is a secret — never let it leave the server via GET /api/settings.
 function stripSecrets(settings) {
@@ -128,6 +129,18 @@ function mergeDelivery(current, incoming) {
   return merged;
 }
 
+// Phase 6.5 — per-user branch locking toggle.
+function mergeBranchAccess(current, incoming) {
+  const currentObj = current && current.toObject ? current.toObject() : current || {};
+  const merged = { ...currentObj };
+
+  if (incoming.staffCanSwitchBranches !== undefined) {
+    merged.staffCanSwitchBranches = Boolean(incoming.staffCanSwitchBranches);
+  }
+
+  return merged;
+}
+
 // Deep-merge round-trip for settings.loyalty — a PUT touching only e.g.
 // { loyalty: { pointsPer100: 10 } } must not wipe out tiers/referralBonus/etc.
 function mergeLoyalty(current, incoming) {
@@ -171,6 +184,7 @@ const updateSettings = asyncHandler(async (req, res) => {
     loyalty,
     approvals,
     delivery,
+    branchAccess,
   } = req.body;
 
   let settings = await Setting.findOne();
@@ -216,6 +230,13 @@ const updateSettings = asyncHandler(async (req, res) => {
 
   if (delivery) {
     settings.delivery = mergeDelivery(settings.delivery, delivery);
+  }
+
+  if (branchAccess) {
+    settings.branchAccess = mergeBranchAccess(settings.branchAccess, branchAccess);
+    // Take effect on the very next request rather than waiting out the
+    // in-process cache TTL in tenantContext.js.
+    invalidateBranchAccess(req.tenantId || (req.user && req.user.tenantId) || 'default');
   }
 
   await settings.save();

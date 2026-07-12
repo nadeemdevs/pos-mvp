@@ -1,6 +1,7 @@
 const express = require('express');
 const { requireAuth, authorize } = require('../../common/middleware/auth');
 const tenantContext = require('../../common/middleware/tenantContext');
+const requireSpecificBranch = require('../../common/middleware/requireSpecificBranch');
 const controller = require('./inventory.controller');
 
 const router = express.Router();
@@ -15,9 +16,9 @@ router.get('/low', canRead, controller.low);
 router.get('/', canRead, controller.list);
 router.get('/:id', canRead, controller.getOne);
 router.get('/:id/ledger', canRead, controller.ledger);
-router.post('/', canWrite, controller.create);
-router.post('/:id/adjust', canWrite, controller.adjust);
-router.put('/:id', canWrite, controller.update);
-router.delete('/:id', canWrite, controller.remove);
+router.post('/', canWrite, requireSpecificBranch, controller.create);
+router.post('/:id/adjust', canWrite, requireSpecificBranch, controller.adjust);
+router.put('/:id', canWrite, requireSpecificBranch, controller.update);
+router.delete('/:id', canWrite, requireSpecificBranch, controller.remove);
 
 module.exports = router;

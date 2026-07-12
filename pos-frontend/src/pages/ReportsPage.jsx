@@ -9,6 +9,7 @@ import {
   getTaxReport,
 } from '../services/reportService'
 import { getSettings } from '../services/settingsService'
+import { useBranchStore } from '../store/branchStore'
 import { formatCurrency, formatDateTime, todayStr } from '../utils/format'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
@@ -24,10 +25,14 @@ const TABS = [
 
 export default function ReportsPage() {
   const [tab, setTab] = useState('daily')
+  const activeBranch = useBranchStore((s) => s.activeBranch)
 
   return (
     <div>
       <h1 className="page-title">Reports</h1>
+      {activeBranch === 'all' && (
+        <p className="page-subtitle">Showing combined data across all branches</p>
+      )}
       <div className="tabs">
         {TABS.map((t) => (
           <button

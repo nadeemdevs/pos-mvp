@@ -9,10 +9,12 @@ import {
   openShift,
 } from '../services/shiftService'
 import { toast } from '../store/toastStore'
+import { useBranchStore } from '../store/branchStore'
 import { formatCurrency, formatDateTime } from '../utils/format'
 import Modal from '../components/Modal'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
+import BranchRequiredNotice from '../components/BranchRequiredNotice'
 
 function varianceClass(variance) {
   if (variance == null) return ''
@@ -257,6 +259,7 @@ function ShiftDetailModal({ shiftId, onClose }) {
 }
 
 export default function ShiftsPage() {
+  const activeBranch = useBranchStore((s) => s.activeBranch)
   const queryClient = useQueryClient()
   const [openModalOpen, setOpenModalOpen] = useState(false)
   const [movementModalOpen, setMovementModalOpen] = useState(false)
@@ -319,6 +322,8 @@ export default function ShiftsPage() {
     setCloseModalOpen(false)
     setCloseResult(null)
   }
+
+  if (activeBranch === 'all') return <BranchRequiredNotice />
 
   if (isLoading) return <Spinner label="Loading shift…" />
 

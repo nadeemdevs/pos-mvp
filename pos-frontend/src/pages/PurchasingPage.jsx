@@ -15,11 +15,13 @@ import {
   receivePurchaseOrder,
   updatePurchaseOrder,
 } from '../services/purchaseOrderService'
+import { getBranches } from '../services/branchService'
 import Modal from '../components/Modal'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
 import { toast } from '../store/toastStore'
+import { useBranchStore } from '../store/branchStore'
 import { formatCurrency, formatDate, formatDateTime } from '../utils/format'
 
 const STATUS_CHIPS = [
@@ -310,6 +312,20 @@ function PurchaseOrdersTab() {
   const [form, setForm] = useState(emptyPOForm)
   const [detailId, setDetailId] = useState(null)
 
+  const activeBranch = useBranchStore((s) => s.activeBranch)
+  const showBranchColumn = activeBranch === 'all'
+
+  // Only needed to resolve a branchId -> display name for the combined
+  // "All Branches" unfiltered side-by-side list — not a merge/sum of rows.
+  const { data: branchesForColumn } = useQuery({
+    queryKey: ['branches'],
+    queryFn: () => getBranches(),
+    enabled: showBranchColumn,
+    retry: false,
+  })
+  const branchesList = Array.isArray(branchesForColumn) ? branchesForColumn : branchesForColumn?.items || []
+  const branchName = (code) => branchesList.find((b) => b.code === code)?.name || code || '—'
+
   const { data, isLoading } = useQuery({
     queryKey: ['purchase-orders', { status: statusFilter }],
     queryFn: () => getPurchaseOrders({ ...(statusFilter ? { status: statusFilter } : {}) }),
@@ -450,6 +466,7 @@ function PurchaseOrdersTab() {
                 <th>Expected</th>
                 <th>Subtotal</th>
                 <th>Status</th>
+                {showBranchColumn && <th>Branch</th>}
               </tr>
             </thead>
             <tbody>
@@ -467,6 +484,7 @@ function PurchaseOrdersTab() {
                   <td>
                     <StatusPill status={po.status} />
                   </td>
+                  {showBranchColumn && <td>{branchName(po.branchId)}</td>}
                 </tr>
               ))}
             </tbody>

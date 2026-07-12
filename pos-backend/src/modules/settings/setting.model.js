@@ -137,6 +137,17 @@ const loyaltySettingsSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Phase 6.5 — per-user branch locking (see common/middleware/tenantContext.js
+// for the enforcement rule). Default false: locked-by-default is the safe
+// default, matching the "nothing gates which branch a user can point the
+// x-branch-id header at" gap this closes.
+const branchAccessSchema = new mongoose.Schema(
+  {
+    staffCanSwitchBranches: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const approvalsSettingsSchema = new mongoose.Schema(
   {
     // bcrypt hash of the manager-override PIN. Never returned by GET /api/settings.
@@ -162,6 +173,7 @@ const settingSchema = new mongoose.Schema(
     loyalty: { type: loyaltySettingsSchema, default: () => ({}) },
     approvals: { type: approvalsSettingsSchema, default: () => ({}) },
     delivery: { type: deliverySchema, default: () => ({}) },
+    branchAccess: { type: branchAccessSchema, default: () => ({}) },
   },
   { timestamps: true }
 );

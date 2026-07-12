@@ -41,6 +41,9 @@ function issueToken(user, roleName, permissions) {
       role: roleName,
       permissions,
       tenantId: user.tenantId || 'default',
+      // Phase 6.5 — the user's HOME branch, so branch-lock decisions in
+      // tenantContext.js don't need a DB hit on every request.
+      branchId: user.branchId || 'main',
     },
     config.jwtSecret,
     { expiresIn: config.jwtExpiresIn }
@@ -55,6 +58,7 @@ function userResponse(user, roleName, permissions) {
     role: roleName,
     permissions,
     tenantId: user.tenantId || 'default',
+    branchId: user.branchId || 'main',
     emailVerified: user.emailVerified === true,
   };
 }
@@ -182,6 +186,7 @@ async function getMe(userId) {
     role: user.role ? user.role.name : null,
     permissions: user.role ? user.role.permissions : [],
     tenantId: user.tenantId || 'default',
+    branchId: user.branchId || 'main',
     emailVerified: user.emailVerified === true,
   };
 }

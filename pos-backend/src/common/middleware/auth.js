@@ -1,7 +1,6 @@
 const jwt = require('jsonwebtoken');
 const config = require('../../config');
-const requestContext = require('../requestContext');
-const { resolveBranchId } = require('./tenantContext');
+const { resolveBranchId, runWithResolvedBranch } = require('./tenantContext');
 const tenantStatus = require('../../modules/tenants/tenantStatus');
 
 // Routes that must stay reachable even when the caller's tenant is suspended:
@@ -43,6 +42,11 @@ async function requireAuth(req, res, next) {
     role: payload.role,
     permissions: payload.permissions || [],
     tenantId: payload.tenantId || 'default',
+    // Phase 6.5 — the user's HOME branch, used by resolveBranchId to pin
+    // non-privileged staff to their own branch regardless of what
+    // x-branch-id header they send. Tokens minted before Phase 6.5 have no
+    // branchId claim and fall back to 'main'.
+    branchId: payload.branchId || 'main',
   };
 
   req.tenantId = req.user.tenantId;
@@ -67,13 +71,14 @@ async function requireAuth(req, res, next) {
     }
   }
 
+  let resolvedBranchId;
   try {
-    req.branchId = await resolveBranchId(req.tenantId, req.headers['x-branch-id']);
+    resolvedBranchId = await resolveBranchId(req.tenantId, req.headers['x-branch-id'], req.user);
   } catch (err) {
-    req.branchId = req.branchId || 'main';
+    resolvedBranchId = req.branchId || 'main';
   }
 
-  requestContext.run({ tenantId: req.tenantId, branchId: req.branchId }, () => next());
+  runWithResolvedBranch(req, resolvedBranchId, next);
 }
 
 function authorize(...permissions) {

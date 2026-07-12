@@ -12,7 +12,9 @@ import {
 import { createOrder } from '../services/orderService'
 import { getSettings } from '../services/settingsService'
 import { useAuthStore } from '../store/authStore'
+import { useBranchStore } from '../store/branchStore'
 import { useSocketEvents } from '../hooks/useSocketEvents'
+import BranchRequiredNotice from '../components/BranchRequiredNotice'
 import { toast } from '../store/toastStore'
 import { formatCurrency } from '../utils/format'
 import Modal from '../components/Modal'
@@ -368,6 +370,7 @@ function ManageTablesModal({ open, onClose, tables, showQr }) {
 export default function TablesPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const activeBranch = useBranchStore((s) => s.activeBranch)
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canManageTables = hasPermission('tables.manage')
 
@@ -437,6 +440,8 @@ export default function TablesPage() {
     const orderId = table.currentOrderId || table.order?._id || table.order?.id
     if (orderId) navigate(`/orders/${orderId}`)
   }
+
+  if (activeBranch === 'all') return <BranchRequiredNotice />
 
   if (isLoading) return <Spinner label="Loading tables…" />
 

@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getKots, printKot, updateKotStatus } from '../services/kotService'
 import { useSocketEvents } from '../hooks/useSocketEvents'
 import { toast } from '../store/toastStore'
+import { useBranchStore } from '../store/branchStore'
+import BranchRequiredNotice from '../components/BranchRequiredNotice'
 
 const COLUMNS = [
   { status: 'NEW', title: 'Incoming', action: 'PREPARING', actionLabel: 'Start' },
@@ -102,6 +104,7 @@ function TicketCard({ kot, column, onAdvance, onCancel, onPrint, isAdvancing }) 
 
 export default function KitchenPage() {
   const queryClient = useQueryClient()
+  const activeBranch = useBranchStore((s) => s.activeBranch)
   const [printPayload, setPrintPayload] = useState(null)
 
   const { data, isLoading } = useQuery({
@@ -148,6 +151,8 @@ export default function KitchenPage() {
     ...col,
     tickets: kots.filter((k) => k.status === col.status),
   }))
+
+  if (activeBranch === 'all') return <BranchRequiredNotice />
 
   return (
     <div className="kitchen-page">

@@ -46,22 +46,121 @@ async function getActiveBranchCodes(tenantId) {
   }
 }
 
+// Phase 6.5 — per-user branch locking. By default a non-privileged staff
+// member (anyone without the `branches.manage` permission — reused as the
+// bypass gate rather than inventing a new permission) can only ever operate
+// against their OWN home branch (User.branchId, carried in the JWT), no
+// matter what `x-branch-id` header they send. A tenant Admin/Manager can
+// flip `settings.branchAccess.staffCanSwitchBranches` to true to let every
+// staff member roam across branches via the header, same as a
+// `branches.manage` holder always could.
+//
+// Mirrors the getActiveBranchCodes cache above (per-tenant Map, short TTL),
+// so this doesn't cost a Mongo round trip on every single request.
+const branchAccessCache = new Map(); // tenantId -> { allowed:boolean, fetchedAt }
+const BRANCH_ACCESS_CACHE_TTL_MS = 30 * 1000;
+
+async function getStaffCanSwitchBranches(tenantId) {
+  const now = Date.now();
+  const entry = branchAccessCache.get(tenantId);
+  if (entry && now - entry.fetchedAt < BRANCH_ACCESS_CACHE_TTL_MS) return entry.allowed;
+
+  try {
+    // Required lazily to avoid a require-cycle at module-load time.
+    const Setting = require('../../modules/settings/setting.model');
+    const setting = await Setting.findOne({ tenantId }).select('branchAccess').lean();
+    const allowed = Boolean(setting && setting.branchAccess && setting.branchAccess.staffCanSwitchBranches);
+    branchAccessCache.set(tenantId, { allowed, fetchedAt: now });
+    return allowed;
+  } catch (err) {
+    console.error('[tenantContext] failed to refresh branchAccess setting:', err.message);
+    return entry ? entry.allowed : false;
+  }
+}
+
+// Invalidate the cached branchAccess flag for a tenant immediately after the
+// setting is changed (see settings.controller.js), so the toggle takes
+// effect on the very next request instead of waiting out the TTL.
+function invalidateBranchAccess(tenantId) {
+  branchAccessCache.delete(tenantId || 'default');
+}
+
+// The actual enforcement rule, extracted as a pure function so it's directly
+// unit-testable without spinning up Express/Mongo:
+//   - a `branches.manage` holder (or the tenant-wide opt-in) always gets
+//     whatever the header resolved to (validated against active branch
+//     codes elsewhere — see resolveBranchId below);
+//   - everyone else is silently pinned to their own home branch — a stale or
+//     malicious header is never honored, but it also never produces an
+//     error, so an innocent stale-cache client just quietly stays put.
+function computeResolvedBranchId({
+  isPrivileged,
+  tenantAllowsSwitching,
+  userHomeBranch,
+  headerResolvedBranchId,
+  isAllHeader,
+}) {
+  if (isAllHeader && (isPrivileged || tenantAllowsSwitching)) return 'all';
+  if (isPrivileged || tenantAllowsSwitching) return headerResolvedBranchId;
+  return userHomeBranch || 'main';
+}
+
 // Resolve the effective branchId for a request within a tenant. Exported so
 // requireAuth can re-resolve after the real tenant is known.
-async function resolveBranchId(tenantId, header) {
-  if (!header) return 'main';
-
+//
+// `user` is optional — omitted for the pre-`requireAuth` global pass (no
+// req.user yet, so no enforcement decision can be made; the header is
+// resolved at face value exactly as before and gets overwritten once
+// requireAuth re-enters with the real user). Once `user` (req.user, carrying
+// permissions + branchId from the JWT) is available, the branch-locking rule
+// above is applied.
+async function resolveBranchId(tenantId, header, user) {
   const codes = await getActiveBranchCodes(tenantId);
-  const normalized = String(header).toLowerCase();
-  return codes.has(normalized) ? normalized : 'main';
+  const normalized = header ? String(header).toLowerCase() : '';
+  const isAllHeader = normalized === 'all';
+  const headerResolvedBranchId = normalized && codes.has(normalized) ? normalized : 'main';
+
+  if (!user) return headerResolvedBranchId;
+
+  const isPrivileged = Array.isArray(user.permissions) && user.permissions.includes('branches.manage');
+  const tenantAllowsSwitching = await getStaffCanSwitchBranches(tenantId);
+  const userHomeBranch = user.branchId || 'main';
+
+  return computeResolvedBranchId({
+    isPrivileged,
+    tenantAllowsSwitching,
+    userHomeBranch,
+    headerResolvedBranchId,
+    isAllHeader,
+  });
+}
+
+// Applies the 'all' sentinel translation: when resolveBranchId() returns the
+// literal string 'all', req.branchId stays 'all' (visible to controllers /
+// the frontend) but the ALS context gets branchId:null + allBranches:true,
+// so the existing tenantPlugin.js scoping-skip hook fires (it already treats
+// a falsy context branchId as "don't scope at all"). Any other resolved
+// value runs through completely unchanged.
+function runWithResolvedBranch(req, resolvedBranchId, next) {
+  req.tenantId = req.tenantId || 'default';
+  if (resolvedBranchId === 'all') {
+    req.branchId = 'all';
+    return requestContext.run({ tenantId: req.tenantId, branchId: null, allBranches: true }, next);
+  }
+  req.branchId = resolvedBranchId;
+  return requestContext.run({ tenantId: req.tenantId, branchId: resolvedBranchId }, next);
 }
 
 async function tenantContext(req, res, next) {
   req.tenantId = (req.user && req.user.tenantId) || req.tenantId || 'default';
-  req.branchId = await resolveBranchId(req.tenantId, req.headers['x-branch-id']);
-
-  requestContext.run({ tenantId: req.tenantId, branchId: req.branchId }, () => next());
+  const resolvedBranchId = await resolveBranchId(req.tenantId, req.headers['x-branch-id'], req.user);
+  runWithResolvedBranch(req, resolvedBranchId, () => next());
 }
 
 module.exports = tenantContext;
 module.exports.resolveBranchId = resolveBranchId;
+module.exports.getActiveBranchCodes = getActiveBranchCodes;
+module.exports.getStaffCanSwitchBranches = getStaffCanSwitchBranches;
+module.exports.invalidateBranchAccess = invalidateBranchAccess;
+module.exports.computeResolvedBranchId = computeResolvedBranchId;
+module.exports.runWithResolvedBranch = runWithResolvedBranch;

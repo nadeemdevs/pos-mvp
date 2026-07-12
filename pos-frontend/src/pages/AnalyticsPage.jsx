@@ -8,6 +8,7 @@ import {
   getPeakHours,
 } from '../services/analyticsService'
 import { getSettings } from '../services/settingsService'
+import { useBranchStore } from '../store/branchStore'
 import { formatCurrency, todayStr } from '../utils/format'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
@@ -31,6 +32,7 @@ export default function AnalyticsPage() {
   const [from, setFrom] = useState(todayStr())
   const [to, setTo] = useState(todayStr())
   const [activeRange, setActiveRange] = useState('today')
+  const activeBranch = useBranchStore((s) => s.activeBranch)
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
   const currency = settings?.currency || 'INR'
@@ -81,6 +83,9 @@ export default function AnalyticsPage() {
         <div>
           <h1 className="page-title">Analytics</h1>
           <p className="page-subtitle">Revenue, profitability and channel performance</p>
+          {activeBranch === 'all' && (
+            <p className="page-subtitle">Showing combined data across all branches</p>
+          )}
         </div>
         <div className="analytics-range-controls">
           <div className="chip-row">

@@ -1128,6 +1128,24 @@ function BranchesCard() {
   })
   const branches = Array.isArray(data) ? data : data?.items || []
 
+  // Phase 6.5 — per-user branch locking toggle. Shares the ['settings']
+  // query cache with the rest of this page.
+  const { data: settingsData } = useQuery({
+    queryKey: ['settings'],
+    queryFn: getSettings,
+    enabled: canManageBranches,
+  })
+  const staffCanSwitchBranches = !!settingsData?.branchAccess?.staffCanSwitchBranches
+
+  const branchAccessMutation = useMutation({
+    mutationFn: (staffCanSwitchBranches) => updateSettings({ branchAccess: { staffCanSwitchBranches } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      toast('Branch access setting updated', 'success')
+    },
+    onError: (e) => toast(e.response?.data?.message || 'Failed to update branch access setting', 'error'),
+  })
+
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['branches'] })
 
   const createMutation = useMutation({
@@ -1196,6 +1214,19 @@ function BranchesCard() {
       <p className="page-subtitle">
         Multi-branch operation — coming in a later phase; all data currently lives in the main
         branch.
+      </p>
+
+      <label className="checkbox-field">
+        <input
+          type="checkbox"
+          checked={staffCanSwitchBranches}
+          onChange={(e) => branchAccessMutation.mutate(e.target.checked)}
+          disabled={branchAccessMutation.isPending}
+        />
+        <span>Allow staff to switch between branches</span>
+      </label>
+      <p className="page-subtitle">
+        When off, each staff member can only work in the branch they&apos;re assigned to in Users.
       </p>
 
       {isLoading ? (

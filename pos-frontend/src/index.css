@@ -3160,6 +3160,18 @@ button.banner-link {
   font-weight: 600;
 }
 
+/* Phase 6.5 — read-only branch label shown instead of the selector for
+   staff locked to their own branch. */
+.branch-readonly {
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border: 1px dashed var(--border);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted, inherit);
+}
+
 /* Delivery partners (Settings) */
 
 .delivery-partner-row {
