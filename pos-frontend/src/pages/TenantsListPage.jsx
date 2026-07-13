@@ -125,7 +125,7 @@ export default function TenantsListPage() {
                 return (
                   <tr key={t.slug}>
                     <td>
-                      <Link to={`/platform/tenants/${t.slug}`}>
+                      <Link to={`/platform/tenants/${t.slug}`} className="platform-tenant-link">
                         <div>{t.name}</div>
                         <div className="platform-tenant-slug">{t.slug}</div>
                       </Link>

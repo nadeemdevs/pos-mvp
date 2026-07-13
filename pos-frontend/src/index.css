@@ -1921,6 +1921,20 @@ button, input, select, textarea {
   margin-top: 2px;
 }
 
+.platform-tenant-link {
+  display: inline-block;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.platform-tenant-link:hover {
+  color: var(--accent);
+}
+
+.platform-tenant-link:hover .platform-tenant-slug {
+  color: var(--accent);
+}
+
 .sidebar-divider {
   height: 1px;
   background: rgba(255, 255, 255, 0.08);
@@ -1947,9 +1961,9 @@ button, input, select, textarea {
   --text: #e7eaf1;
   --text-muted: #97a1b3;
   --border: #26304a;
-  --accent: #6d8dff;
-  --accent-hover: #8aa4ff;
-  --accent-bg: rgba(109, 141, 255, 0.16);
+  --accent: #2f6feb;
+  --accent-hover: #5a8bf0;
+  --accent-bg: rgba(47, 111, 235, 0.16);
   --success: #34d399;
   --success-bg: rgba(52, 211, 153, 0.16);
   --danger: #f87171;
@@ -1973,6 +1987,18 @@ button, input, select, textarea {
   display: flex;
   flex-direction: column;
   padding: 20px 0;
+  /* Keep the nav fixed in the viewport while .platform-content scrolls —
+     mirrors .sidebar in AppLayout. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  align-self: flex-start;
+  overflow-y: auto;
+  transition: width 0.15s;
+}
+
+.platform-sidebar-collapsed {
+  width: 68px;
 }
 
 .platform-brand {
@@ -1983,6 +2009,39 @@ button, input, select, textarea {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   margin-bottom: 12px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.platform-sidebar-collapsed .platform-brand {
+  padding: 0 0 20px;
+  text-align: center;
+}
+
+.platform-nav-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 12px;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  color: var(--sidebar-text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.platform-nav-toggle:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--sidebar-text-active);
+}
+
+.platform-sidebar-collapsed .platform-nav-toggle {
+  justify-content: center;
+  margin: 0 8px 12px;
+  padding: 8px;
 }
 
 .platform-nav {
@@ -1994,13 +2053,32 @@ button, input, select, textarea {
 }
 
 .platform-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 10px 14px;
   border-radius: 8px;
   color: var(--sidebar-text);
   text-decoration: none;
   font-size: 14px;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
   transition: background 0.15s, color 0.15s;
+}
+
+.platform-sidebar-collapsed .platform-nav-link {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.platform-nav-link-icon {
+  flex-shrink: 0;
+}
+
+.platform-nav-link-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .platform-nav-link:hover {
@@ -2014,24 +2092,64 @@ button, input, select, textarea {
 }
 
 .platform-sidebar-footer {
-  padding: 14px 20px 4px;
+  padding: 14px 20px;
   margin-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 10px;
+}
+
+.platform-sidebar-collapsed .platform-sidebar-footer {
+  padding: 14px 8px;
+  justify-content: center;
+}
+
+.platform-operator-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.platform-logout-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--sidebar-text);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.platform-logout-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--sidebar-text-active);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.platform-logout-collapsed {
+  margin: 0;
 }
 
 .platform-operator-name {
   font-weight: 600;
   color: var(--sidebar-text-active);
   font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .platform-operator-email {
   font-size: 12px;
   color: var(--sidebar-text);
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .platform-main {
