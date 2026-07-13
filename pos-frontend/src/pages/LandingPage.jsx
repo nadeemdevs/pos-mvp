@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Receipt, ChefHat, Package, Gift, QrCode, TrendingUp, ChevronDown } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { useReveal } from '../hooks/useReveal'
+
+import billingIllustration from '../assets/illustrations/billing.svg'
+import kitchenIllustration from '../assets/illustrations/kitchen.svg'
+import inventoryIllustration from '../assets/illustrations/inventory.svg'
+import loyaltyIllustration from '../assets/illustrations/loyalty.svg'
+import qrIllustration from '../assets/illustrations/qr.svg'
+import analyticsIllustration from '../assets/illustrations/analytics.svg'
 
 // lucide-react has no brand/social marks — these are minimal, recognizable
 // stand-ins for the real logos rather than unrelated generic icons (an
@@ -32,32 +39,32 @@ function IconInstagram(props) {
 
 const FEATURES = [
   {
-    icon: Receipt,
+    illustration: billingIllustration,
     title: 'Billing & POS',
     text: 'Fast, keyboard-friendly billing built for busy counters — cash, UPI, and card in one flow.',
   },
   {
-    icon: ChefHat,
+    illustration: kitchenIllustration,
     title: 'Tables & Kitchen',
     text: 'Live table status and a kitchen display system that keeps every order moving.',
   },
   {
-    icon: Package,
+    illustration: inventoryIllustration,
     title: 'Inventory & Purchasing',
     text: 'Track stock, recipes, and vendor purchase orders without a spreadsheet in sight.',
   },
   {
-    icon: Gift,
+    illustration: loyaltyIllustration,
     title: 'Loyalty & CRM',
     text: 'Reward regulars automatically and keep a full history of every customer.',
   },
   {
-    icon: QrCode,
+    illustration: qrIllustration,
     title: 'QR & Online Ordering',
     text: 'Guests scan a table code and order straight into your kitchen — no app required.',
   },
   {
-    icon: TrendingUp,
+    illustration: analyticsIllustration,
     title: 'Analytics & Reports',
     text: 'Revenue, food cost, and peak-hour insights, updated in real time.',
   },
@@ -191,14 +198,14 @@ function Features() {
           <Reveal
             key={f.title}
             as="article"
-            className={`landing-bento-card ${i === 0 ? 'landing-bento-card--wide' : ''}`}
+            className={`landing-bento-card landing-bento-card--${i}`}
             delay={i * 70}
           >
-            <div className="landing-bento-icon">
-              <f.icon size={22} strokeWidth={2} aria-hidden="true" />
+            <div className="landing-bento-content">
+              <h3>{f.title}</h3>
+              <p>{f.text}</p>
             </div>
-            <h3>{f.title}</h3>
-            <p>{f.text}</p>
+            <img src={f.illustration} alt="" className="landing-bento-illustration" aria-hidden="true" />
           </Reveal>
         ))}
       </div>
@@ -239,7 +246,7 @@ function FaqItem({ item, isOpen, onToggle, index }) {
 }
 
 function Faq() {
-  const [openIndex, setOpenIndex] = useState(null)
+  const [openIndex, setOpenIndex] = useState(0)
 
   return (
     <section id="faq" className="landing-section">
