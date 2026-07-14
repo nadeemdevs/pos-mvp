@@ -153,6 +153,10 @@ const settingSchema = new mongoose.Schema(
     phone: { type: String, default: '' },
     taxRate: { type: Number, default: 5 },
     currency: { type: String, default: 'INR' },
+    // Drives the SGST/CGST split on invoices (see billing.service.js
+    // splitGst) — GST-registered Indian businesses must show tax as two
+    // equal halves rather than one lump "Tax" line.
+    country: { type: String, default: 'India' },
     receiptFooter: { type: String, default: 'Thank you for visiting!' },
     paymentProviders: { type: paymentProvidersSchema, default: () => ({}) },
     discounts: { type: discountsSchema, default: () => ({}) },

@@ -45,6 +45,18 @@ export function computeRoundOff(total, rounding) {
   return { rounded, roundOff: Math.round((rounded - total) * 100) / 100 }
 }
 
+// GST-registered Indian businesses show tax as two equal halves (SGST +
+// CGST) rather than one lump amount. sgst+cgst always adds up to exactly
+// `tax` (rather than each being a bare tax/2) so rounding never leaves the
+// totals a cent off. Used for live cart/order previews before an invoice
+// exists — once an invoice is created, its own persisted sgst/cgst fields
+// are the source of truth (see Receipt.jsx).
+export function splitTax(tax) {
+  const sgst = Math.round((tax / 2) * 100) / 100
+  const cgst = Math.round((tax - sgst) * 100) / 100
+  return { sgst, cgst }
+}
+
 export function todayStr() {
   const d = new Date()
   const yyyy = d.getFullYear()

@@ -3,6 +3,10 @@ import { formatCurrency, formatDateTime } from '../utils/format'
 export default function Receipt({ invoice, payment, settings }) {
   if (!invoice) return null
   const currency = settings?.currency || 'INR'
+  // sgst/cgst are only non-zero when the invoice was created while
+  // settings.country was 'India' — this keeps reprints of older invoices
+  // consistent even if the setting is toggled afterwards.
+  const hasGstSplit = (invoice.sgst || 0) > 0 || (invoice.cgst || 0) > 0
 
   return (
     <div className="receipt" id="print-receipt">
@@ -56,10 +60,23 @@ export default function Receipt({ invoice, payment, settings }) {
           <span>Subtotal</span>
           <span>{formatCurrency(invoice.subtotal, currency)}</span>
         </div>
-        <div>
-          <span>Tax</span>
-          <span>{formatCurrency(invoice.tax, currency)}</span>
-        </div>
+        {hasGstSplit ? (
+          <>
+            <div>
+              <span>SGST</span>
+              <span>{formatCurrency(invoice.sgst, currency)}</span>
+            </div>
+            <div>
+              <span>CGST</span>
+              <span>{formatCurrency(invoice.cgst, currency)}</span>
+            </div>
+          </>
+        ) : (
+          <div>
+            <span>Tax</span>
+            <span>{formatCurrency(invoice.tax, currency)}</span>
+          </div>
+        )}
         {invoice.discount > 0 && (
           <div>
             <span>

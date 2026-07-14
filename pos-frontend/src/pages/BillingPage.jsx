@@ -8,7 +8,7 @@ import { getCurrentShift } from '../services/shiftService'
 import { setApprovalToken } from '../services/api'
 import { useCartStore } from '../store/cartStore'
 import { toast } from '../store/toastStore'
-import { computeRoundOff, formatCurrency } from '../utils/format'
+import { computeRoundOff, formatCurrency, splitTax } from '../utils/format'
 import HeldBillsModal from '../components/HeldBillsModal'
 import DineInBillsModal from '../components/DineInBillsModal'
 import SplitBillModal from '../components/SplitBillModal'
@@ -28,7 +28,8 @@ function DiscountEditor({ discountType, discountValue, presets, maxPercent, onSe
     Number(discountValue) > Number(maxPercent)
 
   return (
-    <div className="discount-block">
+    <div className="discount-block field ">
+        <span className=''>Discount</span>
       <div className="field-row discount-input-row">
         <div className="discount-toggle">
           <button
@@ -47,10 +48,11 @@ function DiscountEditor({ discountType, discountValue, presets, maxPercent, onSe
           </button>
         </div>
         <label className="field discount-value-field">
-          <span>Discount</span>
+          {/* <span>Discount</span> */}
           <input
             type="number"
             min="0"
+            placeholder='Discount'
             step="0.01"
             value={discountValue || ''}
             onChange={(e) => onSetValue(e.target.value)}
@@ -122,6 +124,8 @@ export default function BillingPage() {
 
   const subtotal = cart.getSubtotal()
   const tax = cart.getTax()
+  const gstSplitEnabled = settings?.country === 'India'
+  const { sgst, cgst } = splitTax(tax)
   const discountAmount = cart.getDiscountAmount()
   const total = cart.getTotal()
   const { rounded: displayTotal, roundOff } = computeRoundOff(total, settings?.rounding)
@@ -356,10 +360,23 @@ export default function BillingPage() {
               <span>Subtotal</span>
               <span>{formatCurrency(subtotal, currency)}</span>
             </div>
-            <div>
-              <span>Tax</span>
-              <span>{formatCurrency(tax, currency)}</span>
-            </div>
+            {gstSplitEnabled ? (
+              <>
+                <div>
+                  <span>SGST</span>
+                  <span>{formatCurrency(sgst, currency)}</span>
+                </div>
+                <div>
+                  <span>CGST</span>
+                  <span>{formatCurrency(cgst, currency)}</span>
+                </div>
+              </>
+            ) : (
+              <div>
+                <span>Tax</span>
+                <span>{formatCurrency(tax, currency)}</span>
+              </div>
+            )}
             <div>
               <span>
                 Discount

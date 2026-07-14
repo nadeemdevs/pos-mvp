@@ -16,6 +16,7 @@ const emptyForm = {
   phone: '',
   taxRate: '',
   currency: 'INR',
+  country: 'India',
   receiptFooter: '',
 }
 
@@ -76,6 +77,7 @@ export default function SettingsPage() {
         phone: data.phone || '',
         taxRate: data.taxRate ?? '',
         currency: data.currency || 'INR',
+        country: data.country || 'India',
         receiptFooter: data.receiptFooter || '',
       })
       setPaymentProviders({
@@ -361,7 +363,22 @@ export default function SettingsPage() {
                 onChange={(e) => setForm({ ...form, currency: e.target.value })}
               />
             </label>
+            <label className="field">
+              <span>Country</span>
+              <select
+                value={form.country}
+                onChange={(e) => setForm({ ...form, country: e.target.value })}
+              >
+                <option value="India">India</option>
+                <option value="Other">Other</option>
+              </select>
+            </label>
           </div>
+          {form.country === 'India' && (
+            <p className="field-hint">
+              Tax will be shown as two equal halves — SGST + CGST — on the bill and receipt instead of one lump "Tax" line.
+            </p>
+          )}
           <label className="field">
             <span>Receipt Footer</span>
             <textarea

@@ -155,6 +155,7 @@ const updateSettings = asyncHandler(async (req, res) => {
     phone,
     taxRate,
     currency,
+    country,
     receiptFooter,
     paymentProviders,
     discounts,
@@ -176,6 +177,7 @@ const updateSettings = asyncHandler(async (req, res) => {
   settings.phone = phone ?? settings.phone;
   settings.taxRate = taxRate ?? settings.taxRate;
   settings.currency = currency ?? settings.currency;
+  settings.country = country ?? settings.country;
   settings.receiptFooter = receiptFooter ?? settings.receiptFooter;
 
   if (paymentProviders) {

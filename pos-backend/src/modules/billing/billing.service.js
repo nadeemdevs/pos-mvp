@@ -29,6 +29,19 @@ function computeItemTotals(items = []) {
   return { subtotal: round2(subtotal), tax: round2(tax) };
 }
 
+// GST-registered Indian businesses must show tax as two equal halves
+// (SGST + CGST) rather than one lump amount. sgst+cgst is made to add up to
+// exactly `tax` (rather than each being a bare tax/2) so rounding never
+// leaves the invoice a cent off.
+function splitGst(tax, settings) {
+  if (!settings || settings.country !== 'India') {
+    return { sgst: 0, cgst: 0 };
+  }
+  const sgst = round2(tax / 2);
+  const cgst = round2(tax - sgst);
+  return { sgst, cgst };
+}
+
 // Normalizes the discount fields a client may send. New clients send
 // {discountType, discountValue}; legacy clients send a plain {discount}
 // number, which is treated as a FLAT amount for backward compatibility.
@@ -120,6 +133,7 @@ async function buildInvoice({
 
   const settings = await getSettings();
   const { subtotal, tax } = computeItemTotals(items);
+  const { sgst, cgst } = splitGst(tax, settings);
   const grossTotal = round2(subtotal + tax);
 
   const discount = computeDiscountAmount(subtotal, tax, discountType, discountValue);
@@ -141,6 +155,8 @@ async function buildInvoice({
     items,
     subtotal,
     tax,
+    sgst,
+    cgst,
     discount,
     discountType,
     discountValue,
@@ -294,6 +310,7 @@ async function updateInvoice(id, payload, user, { approved = false } = {}) {
 
   const settings = await getSettings();
   const { subtotal, tax } = computeItemTotals(invoice.items);
+  const { sgst, cgst } = splitGst(tax, settings);
   const grossTotal = round2(subtotal + tax);
 
   let discountType;
@@ -317,6 +334,8 @@ async function updateInvoice(id, payload, user, { approved = false } = {}) {
 
   invoice.subtotal = subtotal;
   invoice.tax = tax;
+  invoice.sgst = sgst;
+  invoice.cgst = cgst;
   invoice.discount = discount;
   invoice.discountType = discountType;
   invoice.discountValue = discountValue;
