@@ -11,6 +11,14 @@ function checkApproval(req) {
   return valid;
 }
 
+// Gates editing/refunding an already-PAID invoice. Managers/Admins (who hold
+// billing.refund) act freely; a Cashier without it can still trigger the same
+// action but is challenged for a one-shot manager-PIN approval token first —
+// identical precedent to the max-discount-override flow above.
+function canManagePaidInvoice(req) {
+  return req.user.role === 'Admin' || req.user.permissions.includes('billing.refund') || checkApproval(req);
+}
+
 function auditApprovalUsed(req, invoice) {
   auditService.log({
     req,
@@ -40,9 +48,26 @@ const getOne = asyncHandler(async (req, res) => {
 
 const update = asyncHandler(async (req, res) => {
   const approved = checkApproval(req);
-  const invoice = await billingService.updateInvoice(req.params.id, req.body, req.user, { approved });
+  const canEditPaid = canManagePaidInvoice(req);
+  const invoice = await billingService.updateInvoice(req.params.id, req.body, req.user, { approved, canEditPaid });
   if (approved) auditApprovalUsed(req, invoice);
   res.json(invoice);
 });
 
-module.exports = { create, list, getOne, update };
+const refund = asyncHandler(async (req, res) => {
+  if (!canManagePaidInvoice(req)) {
+    return res.status(403).json({ message: 'Manager approval required to refund a paid invoice' });
+  }
+  const result = await billingService.refundInvoice(req.params.id, { ...req.body, user: req.user, req });
+  res.json(result);
+});
+
+const settle = asyncHandler(async (req, res) => {
+  if (!canManagePaidInvoice(req)) {
+    return res.status(403).json({ message: 'Manager approval required to settle a paid invoice balance' });
+  }
+  const payment = await billingService.settleDelta(req.params.id, { ...req.body, user: req.user, req });
+  res.json(payment);
+});
+
+module.exports = { create, list, getOne, update, refund, settle };

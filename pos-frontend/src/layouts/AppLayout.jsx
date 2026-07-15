@@ -11,6 +11,7 @@ import Toaster from '../components/Toaster'
 const NAV_LINKS = [
   { to: '/', label: 'Dashboard', permission: null },
   { to: '/billing', label: 'Billing', permission: 'billing.create' },
+  { to: '/invoices', label: 'Invoices', permission: 'billing.view' },
   { to: '/tables', label: 'Tables', permissions: ['orders.take', 'tables.manage'], dineIn: true },
   { to: '/kitchen', label: 'Kitchen', permission: 'kitchen.view', dineIn: true },
   {

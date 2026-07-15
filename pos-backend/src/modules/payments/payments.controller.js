@@ -147,6 +147,17 @@ const initiate = asyncHandler(async (req, res) => {
   res.status(201).json({ payment });
 });
 
+// GET /api/payments?invoiceId=... — powers the Invoices page's payment
+// history / "amount already paid" display (used to compute the settle-delta
+// balance after editing a paid invoice).
+const list = asyncHandler(async (req, res) => {
+  const { invoiceId } = req.query;
+  if (!invoiceId) return res.status(400).json({ message: 'invoiceId is required' });
+
+  const payments = await Payment.find({ invoiceId }).sort({ createdAt: 1 });
+  res.json({ items: payments });
+});
+
 const getOne = asyncHandler(async (req, res) => {
   let payment = await Payment.findById(req.params.id);
   if (!payment) return res.status(404).json({ message: 'Payment not found' });
@@ -251,4 +262,4 @@ const callback = asyncHandler(async (req, res) => {
   );
 });
 
-module.exports = { manual, initiate, getOne, cancel, callback };
+module.exports = { manual, initiate, list, getOne, cancel, callback };

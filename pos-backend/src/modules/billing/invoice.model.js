@@ -66,6 +66,11 @@ const invoiceSchema = new mongoose.Schema(
     // the resulting discount amount already folded into `total` above.
     loyaltyPoints: { type: Number, default: 0 },
     loyaltyDiscount: { type: Number, default: 0 },
+    // Idempotency guards for reversing stockDeducted/loyaltyProcessed on
+    // refund — same atomic-claim pattern, set once by
+    // stockDeduction.subscriber.handleInvoiceRefunded / loyalty.service.reverseEarnedPoints.
+    stockReversed: { type: Boolean, default: false },
+    loyaltyReversed: { type: Boolean, default: false },
   },
   { timestamps: true, branchScoped: true }
 );

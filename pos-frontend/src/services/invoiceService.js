@@ -11,3 +11,9 @@ export const getInvoice = (id) =>
 
 export const updateInvoice = (id, data) =>
   api.put(`/invoice/${id}`, data).then((r) => r.data)
+
+export const refundInvoice = (id, data) =>
+  api.post(`/invoice/${id}/refund`, data).then((r) => r.data)
+
+export const settleInvoiceDelta = (id, data) =>
+  api.post(`/invoice/${id}/settle`, data).then((r) => r.data)

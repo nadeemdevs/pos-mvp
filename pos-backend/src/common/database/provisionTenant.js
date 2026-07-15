@@ -18,6 +18,10 @@ const Branch = require('../../modules/branches/branch.model');
 const ALL_PERMISSIONS = [
   'billing.create',
   'billing.view',
+  // Edit/refund an already-PAID invoice, or process a full refund — a
+  // Cashier without this can still attempt those actions but is challenged
+  // with the manager-approval-PIN flow (see billing.controller.canManagePaidInvoice).
+  'billing.refund',
   'menu.manage',
   'reports.view',
   'users.manage',

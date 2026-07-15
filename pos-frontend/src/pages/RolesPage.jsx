@@ -10,6 +10,7 @@ import { toast } from '../store/toastStore'
 const ALL_PERMISSIONS = [
   'billing.create',
   'billing.view',
+  'billing.refund',
   'customers.manage',
   'menu.manage',
   'reports.view',
@@ -31,6 +32,7 @@ const ALL_PERMISSIONS = [
 ]
 
 const PERMISSION_LABELS = {
+  'billing.refund': 'Edit/Refund Paid Invoices (correct or void a charged bill)',
   'tables.manage': 'Manage Tables (create/edit tables, zones)',
   'orders.take': 'Take Orders (waiter — dine-in ordering)',
   'kitchen.view': 'Kitchen Display (view/update KOTs)',

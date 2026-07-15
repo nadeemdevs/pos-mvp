@@ -6,6 +6,12 @@ const initialState = {
   discountValue: 0,
   customer: { name: '', phone: '' },
   heldInvoiceId: null,
+  // Set only when an invoice is loaded for editing via loadInvoice — lets
+  // BillingPage tell "resuming a held bill" (PENDING) apart from "editing an
+  // already-charged bill" (PAID), which needs a different save action
+  // (no payment modal, no status change) and a visible warning banner.
+  loadedPaymentStatus: null,
+  loadedInvoiceNumber: null,
   note: '',
 }
 
@@ -72,6 +78,8 @@ export const useCartStore = create((set, get) => ({
       discountValue: invoice.discountValue || 0,
       customer: invoice.customer || { name: '', phone: '' },
       heldInvoiceId: invoice._id || invoice.id || null,
+      loadedPaymentStatus: invoice.paymentStatus || null,
+      loadedInvoiceNumber: invoice.invoiceNumber || null,
       note: invoice.note || '',
     })
   },

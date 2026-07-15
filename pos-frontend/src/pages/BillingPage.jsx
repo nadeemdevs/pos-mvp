@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createInvoice, updateInvoice } from '../services/invoiceService'
 import { takePayment } from '../services/paymentService'
@@ -85,6 +85,7 @@ function DiscountEditor({ discountType, discountValue, presets, maxPercent, onSe
 
 export default function BillingPage() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [heldModalOpen, setHeldModalOpen] = useState(false)
   const [dineInModalOpen, setDineInModalOpen] = useState(false)
   const [splitOrder, setSplitOrder] = useState(null)
@@ -92,6 +93,7 @@ export default function BillingPage() {
   const [activeInvoice, setActiveInvoice] = useState(null)
   const [paymentResult, setPaymentResult] = useState(null)
   const [approvalModalOpen, setApprovalModalOpen] = useState(false)
+  const [approvalAction, setApprovalAction] = useState(null) // 'charge' | 'saveEdit'
 
   const hasPermission = useAuthStore((s) => s.hasPermission)
 
@@ -102,6 +104,9 @@ export default function BillingPage() {
   const customer = useCartStore((s) => s.customer)
   const note = useCartStore((s) => s.note)
   const heldInvoiceId = useCartStore((s) => s.heldInvoiceId)
+  const loadedPaymentStatus = useCartStore((s) => s.loadedPaymentStatus)
+  const loadedInvoiceNumber = useCartStore((s) => s.loadedInvoiceNumber)
+  const isEditingPaid = loadedPaymentStatus === 'PAID'
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
   const currency = settings?.currency || 'INR'
@@ -130,6 +135,10 @@ export default function BillingPage() {
   const total = cart.getTotal()
   const { rounded: displayTotal, roundOff } = computeRoundOff(total, settings?.rounding)
 
+  // `status` is omitted (not even sent as undefined-status) when saving edits
+  // to an already-paid invoice — sending status:'OPEN' there would flip it
+  // back from CLOSED while paymentStatus stays PAID, a combination nothing
+  // else in the app expects.
   const buildInvoicePayload = (status) => {
     const payload = {
       items: items.map((i) => ({
@@ -140,14 +149,23 @@ export default function BillingPage() {
         taxRate: i.taxRate || 0,
       })),
       customer: customer?.name || customer?.phone ? customer : undefined,
-      status,
     }
+    if (status) payload.status = status
     if (discountType && discountValue) {
       payload.discountType = discountType
       payload.discountValue = discountValue
     }
     if (note) payload.note = note
     return payload
+  }
+
+  // A 403 (billing.refund required) or the pre-existing max-discount 400
+  // both mean "a manager needs to approve this" — same challenge, different
+  // trigger, so both paths open the same PIN modal.
+  const needsApproval = (e) => {
+    const status = e.response?.status
+    const message = e.response?.data?.message || ''
+    return status === 403 || (status === 400 && /discount exceeds/i.test(message))
   }
 
   const invalidateInvoices = () =>
@@ -182,7 +200,27 @@ export default function BillingPage() {
     },
     onError: (e) => {
       const message = e.response?.data?.message || 'Failed to create invoice'
-      if (e.response?.status === 400 && /discount exceeds/i.test(message)) {
+      if (needsApproval(e)) {
+        setApprovalAction('charge')
+        setApprovalModalOpen(true)
+        return
+      }
+      toast(message, 'error')
+    },
+  })
+
+  const saveEditMutation = useMutation({
+    mutationFn: () => updateInvoice(heldInvoiceId, buildInvoicePayload()),
+    onSuccess: () => {
+      toast('Invoice updated', 'success')
+      cart.clear()
+      invalidateInvoices()
+      navigate('/invoices')
+    },
+    onError: (e) => {
+      const message = e.response?.data?.message || 'Failed to save changes'
+      if (needsApproval(e)) {
+        setApprovalAction('saveEdit')
         setApprovalModalOpen(true)
         return
       }
@@ -193,7 +231,11 @@ export default function BillingPage() {
   const handleApprovalApproved = (token) => {
     setApprovalToken(token)
     setApprovalModalOpen(false)
-    chargeMutation.mutate()
+    if (approvalAction === 'saveEdit') {
+      saveEditMutation.mutate()
+    } else {
+      chargeMutation.mutate()
+    }
   }
 
   const paymentMutation = useMutation({
@@ -287,6 +329,14 @@ export default function BillingPage() {
             <Link to="/shifts" className="banner-link">
               Open a shift
             </Link>
+          </div>
+        )}
+        {isEditingPaid && (
+          <div className="banner banner-warning">
+            <span>
+              Editing paid invoice {loadedInvoiceNumber} — stock and loyalty points already applied for the
+              original sale are not automatically adjusted.
+            </span>
           </div>
         )}
         <div className="cart-header">
@@ -409,20 +459,32 @@ export default function BillingPage() {
           </label>
 
           <div className="cart-actions">
-            <button
-              className="btn btn-ghost btn-block"
-              disabled={items.length === 0 || holdMutation.isPending}
-              onClick={() => holdMutation.mutate()}
-            >
-              Hold Bill
-            </button>
-            <button
-              className="btn btn-primary btn-block"
-              disabled={items.length === 0 || chargeMutation.isPending}
-              onClick={() => chargeMutation.mutate()}
-            >
-              Charge
-            </button>
+            {isEditingPaid ? (
+              <button
+                className="btn btn-primary btn-block"
+                disabled={items.length === 0 || saveEditMutation.isPending}
+                onClick={() => saveEditMutation.mutate()}
+              >
+                Save Changes
+              </button>
+            ) : (
+              <>
+                <button
+                  className="btn btn-ghost btn-block"
+                  disabled={items.length === 0 || holdMutation.isPending}
+                  onClick={() => holdMutation.mutate()}
+                >
+                  Hold Bill
+                </button>
+                <button
+                  className="btn btn-primary btn-block"
+                  disabled={items.length === 0 || chargeMutation.isPending}
+                  onClick={() => chargeMutation.mutate()}
+                >
+                  Charge
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

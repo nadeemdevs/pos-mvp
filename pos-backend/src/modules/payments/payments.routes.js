@@ -6,6 +6,7 @@ const router = express.Router();
 
 router.post('/manual', requireAuth, authorize('payments.take'), controller.manual);
 router.post('/initiate', requireAuth, authorize('payments.take'), controller.initiate);
+router.get('/', requireAuth, authorize('billing.view', 'payments.take'), controller.list);
 router.get('/:id', requireAuth, authorize('payments.take'), controller.getOne);
 router.post('/:id/cancel', requireAuth, authorize('payments.take'), controller.cancel);
 
