@@ -1,7 +1,27 @@
 const jwt = require('jsonwebtoken');
 const config = require('../../config');
+const { resolveBranchId, runWithResolvedBranch } = require('./tenantContext');
+const tenantStatus = require('../../modules/tenants/tenantStatus');
 
-function requireAuth(req, res, next) {
+// Routes that must stay reachable even when the caller's tenant is suspended:
+// the auth endpoints (login does its own suspension check + returns its own
+// 403; /me must keep working so a suspended owner can still see who they
+// are). /api/platform is listed too for defense-in-depth, though as of Phase
+// 6.4a it never runs through requireAuth at all (it's gated entirely by
+// requirePlatformAuth against a separate operator identity).
+function isSuspensionExempt(req) {
+  const url = req.originalUrl || req.url || '';
+  return url.startsWith('/api/platform') || url.startsWith('/api/auth');
+}
+
+// Phase 6.1: the JWT carries tenantId. The global tenantContext middleware
+// runs BEFORE this one (req.user doesn't exist yet there), so it can only
+// establish the 'default' fallback context — once the token is verified
+// here, we re-enter requestContext.run with the user's REAL tenant (and
+// re-resolve the x-branch-id header within that tenant), so every query
+// hook downstream scopes to the right tenant. Tokens minted before Phase
+// 6.1 have no tenantId claim and fall back to 'default'.
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const [scheme, token] = header.split(' ');
 
@@ -9,18 +29,56 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ message: 'Missing or invalid Authorization header' });
   }
 
+  let payload;
   try {
-    const payload = jwt.verify(token, config.jwtSecret);
-    req.user = {
-      id: payload.id,
-      name: payload.name,
-      role: payload.role,
-      permissions: payload.permissions || [],
-    };
-    next();
+    payload = jwt.verify(token, config.jwtSecret);
   } catch (err) {
     return res.status(401).json({ message: 'Invalid or expired token' });
   }
+
+  req.user = {
+    id: payload.id,
+    name: payload.name,
+    role: payload.role,
+    permissions: payload.permissions || [],
+    tenantId: payload.tenantId || 'default',
+    // Phase 6.5 — the user's HOME branch, used by resolveBranchId to pin
+    // non-privileged staff to their own branch regardless of what
+    // x-branch-id header they send. Tokens minted before Phase 6.5 have no
+    // branchId claim and fall back to 'main'.
+    branchId: payload.branchId || 'main',
+  };
+
+  req.tenantId = req.user.tenantId;
+
+  // Phase 6.2 — suspension gate. Once we know the caller's tenant, refuse the
+  // whole authenticated API when that tenant is SUSPENDED, so suspension bites
+  // on EXISTING tokens too (not just at login). The exempt routes (see
+  // isSuspensionExempt) always pass through. Phase 6.4a: the platform surface
+  // no longer runs through requireAuth at all (it's gated by
+  // requirePlatformAuth against a wholly separate operator identity), so
+  // there is no more "platform admin" concept to exempt here.
+  if (!isSuspensionExempt(req)) {
+    try {
+      const status = await tenantStatus.getStatus(req.tenantId);
+      if (status === 'SUSPENDED') {
+        return res
+          .status(403)
+          .json({ code: 'TENANT_SUSPENDED', message: 'This restaurant account is suspended' });
+      }
+    } catch (err) {
+      // getStatus already fails open internally; nothing to do here.
+    }
+  }
+
+  let resolvedBranchId;
+  try {
+    resolvedBranchId = await resolveBranchId(req.tenantId, req.headers['x-branch-id'], req.user);
+  } catch (err) {
+    resolvedBranchId = req.branchId || 'main';
+  }
+
+  runWithResolvedBranch(req, resolvedBranchId, next);
 }
 
 function authorize(...permissions) {

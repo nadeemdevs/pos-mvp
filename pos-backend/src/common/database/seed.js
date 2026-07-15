@@ -1,28 +1,17 @@
+// MUST be required before any model file (Role/User/... below) — registers
+// the global tenantId/branchId plugin. See tenantPlugin.js.
+require('./tenantPlugin');
 require('dotenv').config();
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const config = require('../../config');
-const Role = require('../../modules/roles/role.model');
-const User = require('../../modules/users/user.model');
+const requestContext = require('../requestContext');
+const { provisionTenant } = require('./provisionTenant');
+const Tenant = require('../../modules/tenants/tenant.model');
 const Category = require('../../modules/menu/category.model');
 const MenuItem = require('../../modules/menu/menuItem.model');
 const Setting = require('../../modules/settings/setting.model');
-
-const ALL_PERMISSIONS = [
-  'billing.create',
-  'billing.view',
-  'menu.manage',
-  'reports.view',
-  'users.manage',
-  'roles.manage',
-  'settings.manage',
-  'payments.take',
-];
-
-const MANAGER_PERMISSIONS = ALL_PERMISSIONS.filter((p) => p !== 'roles.manage');
-
-const CASHIER_PERMISSIONS = ['billing.create', 'billing.view', 'payments.take'];
 
 const CATEGORIES = [
   {
@@ -66,97 +55,77 @@ const CATEGORIES = [
   },
 ];
 
-async function seedRoles() {
-  const roleDefs = [
-    { name: 'Admin', permissions: ALL_PERMISSIONS },
-    { name: 'Manager', permissions: MANAGER_PERMISSIONS },
-    { name: 'Cashier', permissions: CASHIER_PERMISSIONS },
-  ];
-
-  const roles = {};
-  for (const def of roleDefs) {
-    const role = await Role.findOneAndUpdate(
-      { name: def.name },
-      { name: def.name, permissions: def.permissions },
-      { new: true, upsert: true }
-    );
-    roles[def.name] = role;
-  }
-  return roles;
-}
-
-async function seedAdminUser(adminRole) {
-  const email = 'admin@pos.local';
-  const passwordHash = await bcrypt.hash('admin123', 10);
-
-  const user = await User.findOneAndUpdate(
-    { email },
-    {
-      name: 'Admin',
-      email,
-      passwordHash,
-      role: adminRole._id,
-      active: true,
-    },
-    { new: true, upsert: true }
-  );
-
-  return user;
-}
-
+// Demo menu — seeded only for the 'default' tenant (new tenants start with
+// an empty menu). Runs inside the default tenant's request context so the
+// upsert lookups stay scoped and new docs get stamped.
 async function seedMenu() {
-  for (const cat of CATEGORIES) {
-    const category = await Category.findOneAndUpdate(
-      { name: cat.name },
-      { name: cat.name, sortOrder: cat.sortOrder },
-      { new: true, upsert: true }
-    );
-
-    for (const item of cat.items) {
-      await MenuItem.findOneAndUpdate(
-        { name: item.name, categoryId: category._id },
-        {
-          categoryId: category._id,
-          name: item.name,
-          price: item.price,
-          taxRate: 5,
-          active: true,
-        },
+  return requestContext.run({ tenantId: 'default', branchId: 'main' }, async () => {
+    for (const cat of CATEGORIES) {
+      const category = await Category.findOneAndUpdate(
+        { name: cat.name },
+        { name: cat.name, sortOrder: cat.sortOrder },
         { new: true, upsert: true }
       );
+
+      for (const item of cat.items) {
+        await MenuItem.findOneAndUpdate(
+          { name: item.name, categoryId: category._id },
+          {
+            categoryId: category._id,
+            name: item.name,
+            price: item.price,
+            taxRate: 5,
+            active: true,
+          },
+          { new: true, upsert: true }
+        );
+      }
     }
-  }
+  });
 }
 
-async function seedSettings() {
-  const existing = await Setting.findOne();
-  if (!existing) {
-    await Setting.create({
-      restaurantName: 'Malabar Cafe',
-      address: '',
-      phone: '',
-      taxRate: 5,
-      currency: 'INR',
-      receiptFooter: 'Thank you for visiting!',
-    });
-  }
+// Ensure the platform-level Tenant record for the pre-existing 'default'
+// tenant. Name comes from the existing settings doc when present.
+async function ensureDefaultTenant() {
+  const existing = await Tenant.findOne({ slug: 'default' });
+  if (existing) return existing;
+
+  const settings = await requestContext.run({ tenantId: 'default', branchId: 'main' }, () =>
+    Setting.findOne()
+  );
+
+  return Tenant.create({
+    name: (settings && settings.restaurantName) || 'Main Restaurant',
+    slug: 'default',
+    ownerEmail: 'admin@pos.local',
+    status: 'ACTIVE',
+  });
 }
 
 async function run() {
   await mongoose.connect(config.mongoUri);
   console.log(`[seed] connected: ${config.mongoUri}`);
 
-  const roles = await seedRoles();
-  console.log('[seed] roles upserted:', Object.keys(roles).join(', '));
+  const tenant = await ensureDefaultTenant();
+  console.log(`[seed] tenant ensured: ${tenant.slug} (${tenant.name})`);
 
-  await seedAdminUser(roles.Admin);
-  console.log('[seed] admin user upserted: admin@pos.local / admin123');
+  const passwordHash = await bcrypt.hash('admin123', 10);
+  await provisionTenant({
+    tenantId: 'default',
+    restaurantName: tenant.name,
+    owner: { name: 'Admin', email: 'admin@pos.local', passwordHash },
+  });
+  console.log('[seed] roles, settings, branch, admin user upserted (admin@pos.local / admin123)');
+
+  // Phase 6.4a — Arabian Cafe (the 'default' tenant) is now a plain, ordinary
+  // tenant, exactly as it should be. The old Phase 6.2 platformAdmin flag on
+  // admin@pos.local has been retired entirely (see migrateRemovePlatformAdmin.js
+  // for the one-off cleanup of any live documents that still carry it). The
+  // platform operator is now a completely separate identity — bootstrap one
+  // via `npm run create-operator`.
 
   await seedMenu();
   console.log('[seed] categories and menu items upserted');
-
-  await seedSettings();
-  console.log('[seed] settings ensured');
 
   console.log('[seed] done');
   await mongoose.disconnect();

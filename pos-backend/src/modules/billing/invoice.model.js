@@ -18,11 +18,16 @@ const invoiceSchema = new mongoose.Schema(
     subtotal: { type: Number, required: true, default: 0 },
     tax: { type: Number, required: true, default: 0 },
     discount: { type: Number, required: true, default: 0 },
+    discountType: { type: String, enum: ['FLAT', 'PERCENT'], default: 'FLAT' },
+    discountValue: { type: Number, default: 0, min: 0 },
+    roundOff: { type: Number, default: 0 },
     total: { type: Number, required: true, default: 0 },
+    note: { type: String },
     customer: {
       name: { type: String },
       phone: { type: String },
     },
+    customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
     status: {
       type: String,
       enum: ['OPEN', 'HELD', 'CANCELLED', 'CLOSED'],
@@ -39,8 +44,24 @@ const invoiceSchema = new mongoose.Schema(
       id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       name: { type: String },
     },
+    // Present only for invoices created from a dine-in Order (Mode 2) via
+    // InvoiceService.createFromOrder. Mode 1 invoices (POST /api/invoice)
+    // leave these unset and behave exactly as before.
+    orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order', index: true },
+    orderNumber: { type: String },
+    // Idempotency guard for the automatic recipe-based stock deduction
+    // subscriber — only relevant for Mode 1 (counter sale) invoices, i.e.
+    // orderId unset. See src/modules/inventory/stockDeduction.subscriber.js.
+    stockDeducted: { type: Boolean, default: false },
+    // Idempotency guard for the loyalty-earning subscriber (Phase 5.2) — same
+    // atomic-claim pattern as stockDeducted. See loyalty.service.processInvoicePaid.
+    loyaltyProcessed: { type: Boolean, default: false },
+    // Set by POST /api/loyalty/redeem — points spent against this invoice and
+    // the resulting discount amount already folded into `total` above.
+    loyaltyPoints: { type: Number, default: 0 },
+    loyaltyDiscount: { type: Number, default: 0 },
   },
-  { timestamps: true }
+  { timestamps: true, branchScoped: true }
 );
 
 module.exports = mongoose.model('Invoice', invoiceSchema);

@@ -10,13 +10,39 @@ import { toast } from '../store/toastStore'
 const ALL_PERMISSIONS = [
   'billing.create',
   'billing.view',
+  'customers.manage',
   'menu.manage',
   'reports.view',
   'users.manage',
   'roles.manage',
   'settings.manage',
   'payments.take',
+  'tables.manage',
+  'orders.take',
+  'kitchen.view',
+  'inventory.manage',
+  'purchasing.manage',
+  'branches.manage',
+  'audit.view',
+  'loyalty.manage',
+  'reservations.manage',
+  'shifts.manage',
+  'analytics.view',
 ]
+
+const PERMISSION_LABELS = {
+  'tables.manage': 'Manage Tables (create/edit tables, zones)',
+  'orders.take': 'Take Orders (waiter — dine-in ordering)',
+  'kitchen.view': 'Kitchen Display (view/update KOTs)',
+  'inventory.manage': 'Manage Inventory (items, stock adjustments, ledger)',
+  'purchasing.manage': 'Manage Purchasing (vendors, purchase orders)',
+  'branches.manage': 'Manage Branches',
+  'audit.view': 'View Audit Log',
+  'loyalty.manage': 'Manage Loyalty (adjust customer points)',
+  'reservations.manage': 'Manage Reservations (book, seat, cancel)',
+  'shifts.manage': 'Manage Shifts (open/close, cash reconciliation)',
+  'analytics.view': 'View Analytics (revenue, profitability, channels)',
+}
 
 const emptyForm = { name: '', permissions: [] }
 
@@ -182,7 +208,7 @@ export default function RolesPage() {
                   checked={form.permissions.includes(perm)}
                   onChange={() => togglePermission(perm)}
                 />
-                <span>{perm}</span>
+                <span>{PERMISSION_LABELS[perm] || perm}</span>
               </label>
             ))}
           </div>

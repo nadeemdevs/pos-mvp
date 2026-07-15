@@ -1,11 +1,13 @@
 const ManualCashProvider = require('./providers/ManualCashProvider');
 const ManualUPIProvider = require('./providers/ManualUPIProvider');
+const MockTerminalProvider = require('./providers/MockTerminalProvider');
 const PineLabsProvider = require('./providers/PineLabsProvider');
 const WorldlineProvider = require('./providers/WorldlineProvider');
 
 const providers = {
   CASH: ManualCashProvider,
   UPI: ManualUPIProvider,
+  MOCK: MockTerminalProvider,
   PINELABS: PineLabsProvider,
   WORLDLINE: WorldlineProvider,
 };

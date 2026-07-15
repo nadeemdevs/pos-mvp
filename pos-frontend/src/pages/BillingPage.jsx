@@ -1,72 +1,153 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getCategories } from '../services/categoryService'
-import { getMenuItems } from '../services/menuService'
 import { createInvoice, updateInvoice } from '../services/invoiceService'
 import { takePayment } from '../services/paymentService'
 import { getSettings } from '../services/settingsService'
+import { getCurrentShift } from '../services/shiftService'
+import { setApprovalToken } from '../services/api'
 import { useCartStore } from '../store/cartStore'
+import { useBranchStore } from '../store/branchStore'
 import { toast } from '../store/toastStore'
-import { formatCurrency } from '../utils/format'
+import { computeRoundOff, formatCurrency } from '../utils/format'
 import HeldBillsModal from '../components/HeldBillsModal'
+import DineInBillsModal from '../components/DineInBillsModal'
+import SplitBillModal from '../components/SplitBillModal'
 import PaymentModal from '../components/PaymentModal'
 import Receipt from '../components/Receipt'
-import Spinner from '../components/Spinner'
+import MenuPicker from '../components/MenuPicker'
 import EmptyState from '../components/EmptyState'
+import CustomerLookup from '../components/CustomerLookup'
+import ApprovalPinModal from '../components/ApprovalPinModal'
+import BranchRequiredNotice from '../components/BranchRequiredNotice'
+import { useAuthStore } from '../store/authStore'
+
+function DiscountEditor({ discountType, discountValue, presets, maxPercent, onSetType, onSetValue, onApplyPreset }) {
+  const displayType = discountType || 'FLAT'
+  const exceedsMax =
+    displayType === 'PERCENT' &&
+    maxPercent > 0 &&
+    Number(discountValue) > Number(maxPercent)
+
+  return (
+    <div className="discount-block">
+      <div className="field-row discount-input-row">
+        <div className="discount-toggle">
+          <button
+            type="button"
+            className={`toggle-btn btn-sm ${displayType === 'FLAT' ? 'active' : ''}`}
+            onClick={() => onSetType('FLAT')}
+          >
+            ₹
+          </button>
+          <button
+            type="button"
+            className={`toggle-btn btn-sm ${displayType === 'PERCENT' ? 'active' : ''}`}
+            onClick={() => onSetType('PERCENT')}
+          >
+            %
+          </button>
+        </div>
+        <label className="field discount-value-field">
+          <span>Discount</span>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={discountValue || ''}
+            onChange={(e) => onSetValue(e.target.value)}
+          />
+        </label>
+      </div>
+
+      {presets.length > 0 && (
+        <div className="preset-chip-row">
+          {presets.map((p, idx) => {
+            const active = displayType === p.type && Number(discountValue) === Number(p.value)
+            return (
+              <button
+                key={idx}
+                type="button"
+                className={`chip preset-chip ${active ? 'active' : ''}`}
+                onClick={() => onApplyPreset(p)}
+              >
+                {p.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {exceedsMax && <p className="discount-hint-error">Max {maxPercent}%</p>}
+    </div>
+  )
+}
 
 export default function BillingPage() {
+  const activeBranch = useBranchStore((s) => s.activeBranch)
   const queryClient = useQueryClient()
-  const [categoryFilter, setCategoryFilter] = useState('')
-  const [search, setSearch] = useState('')
   const [heldModalOpen, setHeldModalOpen] = useState(false)
+  const [dineInModalOpen, setDineInModalOpen] = useState(false)
+  const [splitOrder, setSplitOrder] = useState(null)
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [activeInvoice, setActiveInvoice] = useState(null)
   const [paymentResult, setPaymentResult] = useState(null)
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false)
+
+  const hasPermission = useAuthStore((s) => s.hasPermission)
 
   const cart = useCartStore()
   const items = useCartStore((s) => s.items)
-  const discount = useCartStore((s) => s.discount)
+  const discountType = useCartStore((s) => s.discountType)
+  const discountValue = useCartStore((s) => s.discountValue)
   const customer = useCartStore((s) => s.customer)
+  const note = useCartStore((s) => s.note)
   const heldInvoiceId = useCartStore((s) => s.heldInvoiceId)
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
   const currency = settings?.currency || 'INR'
+  const maxPercent = settings?.discounts?.maxPercent
+  const presets = settings?.discounts?.presets || []
+  const dineInEnabled = !!settings?.features?.dineIn && hasPermission('billing.create')
 
-  const { data: categoriesData } = useQuery({
-    queryKey: ['categories'],
-    queryFn: getCategories,
+  // Non-blocking cash-reconciliation nudge — only fetched when shifts are on
+  // and the user manages them; degrades silently on any error (404 when no
+  // shift is open is expected, not a failure).
+  const shiftsFeatureOn = !!settings?.features?.shifts && hasPermission('shifts.manage')
+  const { data: currentShiftData } = useQuery({
+    queryKey: ['shifts', 'current'],
+    queryFn: getCurrentShift,
+    enabled: shiftsFeatureOn,
+    retry: false,
   })
-  const categories = Array.isArray(categoriesData)
-    ? categoriesData
-    : categoriesData?.items || []
-
-  const { data: menuData, isLoading: menuLoading } = useQuery({
-    queryKey: ['menu', 'billing', { category: categoryFilter, search }],
-    queryFn: () =>
-      getMenuItems({
-        active: true,
-        ...(categoryFilter ? { category: categoryFilter } : {}),
-        ...(search ? { search } : {}),
-      }),
-  })
-  const menuItems = Array.isArray(menuData) ? menuData : menuData?.items || []
+  const hasOpenShift = !!(currentShiftData?.shift || currentShiftData?._id)
+  const showNoShiftBanner = shiftsFeatureOn && !hasOpenShift
 
   const subtotal = cart.getSubtotal()
   const tax = cart.getTax()
+  const discountAmount = cart.getDiscountAmount()
   const total = cart.getTotal()
+  const { rounded: displayTotal, roundOff } = computeRoundOff(total, settings?.rounding)
 
-  const buildInvoicePayload = (status) => ({
-    items: items.map((i) => ({
-      menuItemId: i.menuItemId,
-      name: i.name,
-      price: i.price,
-      qty: i.qty,
-      taxRate: i.taxRate || 0,
-    })),
-    discount,
-    customer: customer?.name || customer?.phone ? customer : undefined,
-    status,
-  })
+  const buildInvoicePayload = (status) => {
+    const payload = {
+      items: items.map((i) => ({
+        menuItemId: i.menuItemId,
+        name: i.name,
+        price: i.price,
+        qty: i.qty,
+        taxRate: i.taxRate || 0,
+      })),
+      customer: customer?.name || customer?.phone ? customer : undefined,
+      status,
+    }
+    if (discountType && discountValue) {
+      payload.discountType = discountType
+      payload.discountValue = discountValue
+    }
+    if (note) payload.note = note
+    return payload
+  }
 
   const invalidateInvoices = () =>
     queryClient.invalidateQueries({ queryKey: ['invoices'] })
@@ -98,18 +179,46 @@ export default function BillingPage() {
       setPaymentModalOpen(true)
       invalidateInvoices()
     },
-    onError: (e) => toast(e.response?.data?.message || 'Failed to create invoice', 'error'),
+    onError: (e) => {
+      const message = e.response?.data?.message || 'Failed to create invoice'
+      if (e.response?.status === 400 && /discount exceeds/i.test(message)) {
+        setApprovalModalOpen(true)
+        return
+      }
+      toast(message, 'error')
+    },
   })
+
+  const handleApprovalApproved = (token) => {
+    setApprovalToken(token)
+    setApprovalModalOpen(false)
+    chargeMutation.mutate()
+  }
 
   const paymentMutation = useMutation({
     mutationFn: takePayment,
-    onSuccess: (payment) => {
-      setPaymentResult(payment)
+    onSuccess: (data) => {
+      // /payments/manual responds with { payment, invoice, change } —
+      // the receipt wants the payment document itself
+      setPaymentResult(data?.payment || data)
       setPaymentModalOpen(false)
       invalidateInvoices()
     },
     onError: (e) => toast(e.response?.data?.message || 'Payment failed', 'error'),
   })
+
+  if (activeBranch === 'all') {
+    return <BranchRequiredNotice />
+  }
+
+  const handleCardSuccess = (payment) => {
+    // Card payments are settled (and the invoice marked PAID) server-side by
+    // the terminal flow, so we just surface the same success/receipt screen
+    // used for cash/UPI instead of re-submitting via paymentMutation.
+    setPaymentResult(payment)
+    setPaymentModalOpen(false)
+    invalidateInvoices()
+  }
 
   const handleResume = (invoice) => {
     cart.loadInvoice(invoice)
@@ -121,6 +230,19 @@ export default function BillingPage() {
     cart.clear()
     setActiveInvoice(null)
     setPaymentResult(null)
+  }
+
+  const handleSetDiscountType = (type) => {
+    cart.setDiscountType(type)
+  }
+
+  const handleSetDiscountValue = (value) => {
+    if (!discountType) cart.setDiscountType('FLAT')
+    cart.setDiscountValue(value)
+  }
+
+  const handleApplyPreset = (preset) => {
+    cart.setDiscount(preset.type, preset.value)
   }
 
   if (paymentResult) {
@@ -148,65 +270,40 @@ export default function BillingPage() {
   return (
     <div className="billing-page">
       <div className="billing-left">
-        <div className="category-chips">
-          <button
-            className={`chip ${categoryFilter === '' ? 'active' : ''}`}
-            onClick={() => setCategoryFilter('')}
-          >
-            All
-          </button>
-          {categories.map((c) => (
-            <button
-              key={c._id || c.id}
-              className={`chip ${categoryFilter === (c._id || c.id) ? 'active' : ''}`}
-              onClick={() => setCategoryFilter(c._id || c.id)}
-            >
-              {c.name}
-            </button>
-          ))}
-        </div>
-
-        <input
-          className="billing-search"
-          autoFocus
-          placeholder="Search menu items…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+        <MenuPicker
+          currency={currency}
+          onItemClick={(item) =>
+            cart.add({
+              menuItemId: item._id || item.id,
+              name: item.name,
+              price: item.price,
+              taxRate: item.taxRate || 0,
+            })
+          }
         />
-
-        <div className="menu-grid">
-          {menuLoading ? (
-            <Spinner label="Loading menu…" />
-          ) : menuItems.length === 0 ? (
-            <EmptyState title="No items found" />
-          ) : (
-            menuItems.map((item) => (
-              <button
-                key={item._id || item.id}
-                className="menu-item-card"
-                onClick={() =>
-                  cart.add({
-                    menuItemId: item._id || item.id,
-                    name: item.name,
-                    price: item.price,
-                    taxRate: item.taxRate || 0,
-                  })
-                }
-              >
-                <span className="menu-item-name">{item.name}</span>
-                <span className="menu-item-price">{formatCurrency(item.price, currency)}</span>
-              </button>
-            ))
-          )}
-        </div>
       </div>
 
       <div className="billing-right">
+        {showNoShiftBanner && (
+          <div className="banner banner-warning">
+            <span>No shift open — cash reconciliation is off</span>
+            <Link to="/shifts" className="banner-link">
+              Open a shift
+            </Link>
+          </div>
+        )}
         <div className="cart-header">
           <h2>Current Bill</h2>
-          <button className="btn btn-ghost btn-sm" onClick={() => setHeldModalOpen(true)}>
-            Held Bills
-          </button>
+          <div className="cart-header-actions">
+            {dineInEnabled && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setDineInModalOpen(true)}>
+                Dine-in Bills
+              </button>
+            )}
+            <button className="btn btn-ghost btn-sm" onClick={() => setHeldModalOpen(true)}>
+              Held Bills
+            </button>
+          </div>
         </div>
 
         <div className="cart-lines">
@@ -244,34 +341,22 @@ export default function BillingPage() {
         </div>
 
         <div className="cart-footer">
-          <div className="field-row">
-            <label className="field">
-              <span>Discount (₹)</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={discount}
-                onChange={(e) => cart.setDiscount(e.target.value)}
-              />
-            </label>
-          </div>
-          <div className="field-row">
-            <label className="field">
-              <span>Customer Name</span>
-              <input
-                value={customer?.name || ''}
-                onChange={(e) => cart.setCustomer({ ...customer, name: e.target.value })}
-              />
-            </label>
-            <label className="field">
-              <span>Phone</span>
-              <input
-                value={customer?.phone || ''}
-                onChange={(e) => cart.setCustomer({ ...customer, phone: e.target.value })}
-              />
-            </label>
-          </div>
+          <DiscountEditor
+            discountType={discountType}
+            discountValue={discountValue}
+            presets={presets}
+            maxPercent={maxPercent}
+            onSetType={handleSetDiscountType}
+            onSetValue={handleSetDiscountValue}
+            onApplyPreset={handleApplyPreset}
+          />
+
+          <CustomerLookup
+            customer={customer}
+            onFieldChange={cart.setCustomer}
+            onSelect={cart.setCustomer}
+            onClear={() => cart.setCustomer({ name: '', phone: '' })}
+          />
 
           <div className="totals-block">
             <div>
@@ -283,14 +368,35 @@ export default function BillingPage() {
               <span>{formatCurrency(tax, currency)}</span>
             </div>
             <div>
-              <span>Discount</span>
-              <span>-{formatCurrency(discount, currency)}</span>
+              <span>
+                Discount
+                {discountType === 'PERCENT' && discountValue ? ` (${discountValue}%)` : ''}
+              </span>
+              <span>-{formatCurrency(discountAmount, currency)}</span>
             </div>
+            {roundOff !== 0 && (
+              <div>
+                <span>Round off</span>
+                <span>
+                  {roundOff > 0 ? '+' : ''}
+                  {formatCurrency(roundOff, currency)}
+                </span>
+              </div>
+            )}
             <div className="totals-grand">
               <span>TOTAL</span>
-              <span>{formatCurrency(total, currency)}</span>
+              <span>{formatCurrency(displayTotal, currency)}</span>
             </div>
           </div>
+
+          <label className="field hold-note-field">
+            <span>Note (optional)</span>
+            <input
+              placeholder="e.g. Table 4 uncle"
+              value={note}
+              onChange={(e) => cart.setNote(e.target.value)}
+            />
+          </label>
 
           <div className="cart-actions">
             <button
@@ -322,9 +428,38 @@ export default function BillingPage() {
         onClose={() => setPaymentModalOpen(false)}
         invoice={activeInvoice}
         currency={currency}
+        settings={settings}
         isSubmitting={paymentMutation.isPending}
         onConfirm={(data) => paymentMutation.mutate(data)}
+        onCardSuccess={handleCardSuccess}
+        onInvoiceUpdate={setActiveInvoice}
       />
+
+      <ApprovalPinModal
+        open={approvalModalOpen}
+        onClose={() => setApprovalModalOpen(false)}
+        onApproved={handleApprovalApproved}
+      />
+
+      {dineInEnabled && (
+        <>
+          <DineInBillsModal
+            open={dineInModalOpen}
+            onClose={() => setDineInModalOpen(false)}
+            onSelectOrder={(order) => {
+              setDineInModalOpen(false)
+              setSplitOrder(order)
+            }}
+          />
+          <SplitBillModal
+            open={!!splitOrder}
+            orderId={splitOrder?._id || splitOrder?.id}
+            currency={currency}
+            settings={settings}
+            onClose={() => setSplitOrder(null)}
+          />
+        </>
+      )}
     </div>
   )
 }

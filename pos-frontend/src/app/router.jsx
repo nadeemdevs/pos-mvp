@@ -1,15 +1,40 @@
 import { createBrowserRouter } from 'react-router-dom'
 import ProtectedRoute from '../components/ProtectedRoute'
+import PlatformProtectedRoute from '../components/PlatformProtectedRoute'
+import RootRoute from '../components/RootRoute'
+import DashboardRedirect from '../components/DashboardRedirect'
 import AppLayout from '../layouts/AppLayout'
+import PlatformLayout from '../layouts/PlatformLayout'
 import LoginPage from '../pages/LoginPage'
-import DashboardPage from '../pages/DashboardPage'
+import SignupPage from '../pages/SignupPage'
+import ForgotPasswordPage from '../pages/ForgotPasswordPage'
+import ResetPasswordPage from '../pages/ResetPasswordPage'
+import VerifyEmailPage from '../pages/VerifyEmailPage'
 import BillingPage from '../pages/BillingPage'
+import TablesPage from '../pages/TablesPage'
+import OrderPage from '../pages/OrderPage'
+import KitchenPage from '../pages/KitchenPage'
+import CustomersPage from '../pages/CustomersPage'
 import MenuPage from '../pages/MenuPage'
 import CategoriesPage from '../pages/CategoriesPage'
 import ReportsPage from '../pages/ReportsPage'
 import UsersPage from '../pages/UsersPage'
 import RolesPage from '../pages/RolesPage'
 import SettingsPage from '../pages/SettingsPage'
+import InventoryPage from '../pages/InventoryPage'
+import PurchasingPage from '../pages/PurchasingPage'
+import AuditPage from '../pages/AuditPage'
+import ReservationsPage from '../pages/ReservationsPage'
+import ShiftsPage from '../pages/ShiftsPage'
+import AnalyticsPage from '../pages/AnalyticsPage'
+import PlatformPage from '../pages/PlatformPage'
+import PlatformLoginPage from '../pages/PlatformLoginPage'
+import PlatformSettingsPage from '../pages/PlatformSettingsPage'
+import TenantsListPage from '../pages/TenantsListPage'
+import TenantDetailPage from '../pages/TenantDetailPage'
+import ActivityPage from '../pages/ActivityPage'
+import SystemHealthPage from '../pages/SystemHealthPage'
+import QrOrderPage from '../pages/qr/QrOrderPage'
 
 export const router = createBrowserRouter([
   {
@@ -17,15 +42,95 @@ export const router = createBrowserRouter([
     element: <LoginPage />,
   },
   {
+    path: '/signup',
+    element: <SignupPage />,
+  },
+  {
+    path: '/forgot-password',
+    element: <ForgotPasswordPage />,
+  },
+  {
+    path: '/reset-password',
+    element: <ResetPasswordPage />,
+  },
+  {
+    path: '/verify-email',
+    element: <VerifyEmailPage />,
+  },
+  // Public landing / index route: logged-out visitors see the marketing
+  // LandingPage; logged-in users fall through (via RootRoute's <Outlet/>) to
+  // the protected AppLayout dashboard below.
+  {
+    path: '/',
+    element: <RootRoute />,
+    children: [
+      {
+        element: <ProtectedRoute />,
+        children: [
+          {
+            element: <AppLayout />,
+            children: [{ index: true, element: <DashboardRedirect /> }],
+          },
+        ],
+      },
+    ],
+  },
+  // Public QR-ordering surface — deliberately OUTSIDE ProtectedRoute/AppLayout.
+  // Guests scan a table QR code and land here with no auth, no sidebar, and
+  // must never be redirected to /login (see api.js response interceptor).
+  {
+    path: '/qr/:qrToken',
+    element: <QrOrderPage />,
+  },
+  // Phase 6.4a — platform-operator console. Completely separate auth/session
+  // (platformAuthStore, not the tenant authStore) and completely separate
+  // layout (PlatformLayout, not AppLayout) from the tenant app above. A
+  // tenant user's session has no bearing on any of this.
+  {
+    path: '/platform/login',
+    element: <PlatformLoginPage />,
+  },
+  {
+    element: <PlatformProtectedRoute />,
+    children: [
+      {
+        element: <PlatformLayout />,
+        children: [
+          { path: '/platform', element: <PlatformPage /> },
+          { path: '/platform/tenants', element: <TenantsListPage /> },
+          { path: '/platform/tenants/:slug', element: <TenantDetailPage /> },
+          { path: '/platform/activity', element: <ActivityPage /> },
+          { path: '/platform/system', element: <SystemHealthPage /> },
+          { path: '/platform/settings', element: <PlatformSettingsPage /> },
+        ],
+      },
+    ],
+  },
+  {
     element: <ProtectedRoute />,
     children: [
       {
         element: <AppLayout />,
         children: [
-          { path: '/', element: <DashboardPage /> },
           {
             element: <ProtectedRoute permission="billing.create" />,
             children: [{ path: '/billing', element: <BillingPage /> }],
+          },
+          {
+            element: <ProtectedRoute anyPermission={['orders.take', 'tables.manage']} requireDineIn />,
+            children: [{ path: '/tables', element: <TablesPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="orders.take" requireDineIn />,
+            children: [{ path: '/orders/:id', element: <OrderPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="kitchen.view" requireDineIn />,
+            children: [{ path: '/kitchen', element: <KitchenPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="customers.manage" />,
+            children: [{ path: '/customers', element: <CustomersPage /> }],
           },
           {
             element: <ProtectedRoute permission="menu.manage" />,
@@ -37,6 +142,40 @@ export const router = createBrowserRouter([
           {
             element: <ProtectedRoute permission="reports.view" />,
             children: [{ path: '/reports', element: <ReportsPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="analytics.view" requireFeature="analytics" />,
+            children: [{ path: '/analytics', element: <AnalyticsPage /> }],
+          },
+          {
+            element: (
+              <ProtectedRoute
+                anyPermission={['inventory.manage', 'purchasing.manage']}
+                requireFeature="inventory"
+              />
+            ),
+            children: [{ path: '/inventory', element: <InventoryPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="purchasing.manage" requireFeature="inventory" />,
+            children: [{ path: '/purchasing', element: <PurchasingPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="audit.view" />,
+            children: [{ path: '/audit', element: <AuditPage /> }],
+          },
+          {
+            element: (
+              <ProtectedRoute
+                anyPermission={['reservations.manage', 'orders.take']}
+                requireFeature="reservations"
+              />
+            ),
+            children: [{ path: '/reservations', element: <ReservationsPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="shifts.manage" requireFeature="shifts" />,
+            children: [{ path: '/shifts', element: <ShiftsPage /> }],
           },
           {
             element: <ProtectedRoute permission="users.manage" />,

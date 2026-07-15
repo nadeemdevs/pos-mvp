@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+// Suspension notice is read synchronously on first render (and cleared) so a
+// mid-session TENANT_SUSPENDED bounce shows the reason exactly once.
 import { useMutation } from '@tanstack/react-query'
 import { login as loginApi } from '../services/authService'
 import { useAuthStore } from '../store/authStore'
@@ -13,6 +15,15 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [suspendedNotice] = useState(() => {
+    try {
+      const msg = sessionStorage.getItem('suspendedNotice')
+      if (msg) sessionStorage.removeItem('suspendedNotice')
+      return msg
+    } catch {
+      return null
+    }
+  })
 
   const mutation = useMutation({
     mutationFn: () => loginApi(email, password),
@@ -40,6 +51,11 @@ export default function LoginPage() {
       <form className="login-card" onSubmit={handleSubmit}>
         <h1>Restaurant POS</h1>
         <p className="login-subtitle">Sign in to continue</p>
+        {suspendedNotice && (
+          <div className="login-banner login-banner-danger" role="alert">
+            {suspendedNotice}
+          </div>
+        )}
         <label className="field">
           <span>Email</span>
           <input
@@ -66,6 +82,12 @@ export default function LoginPage() {
         >
           {mutation.isPending ? 'Signing in…' : 'Sign In'}
         </button>
+        <p className="login-alt">
+          <Link to="/forgot-password">Forgot password?</Link>
+        </p>
+        <p className="login-alt">
+          New here? <Link to="/signup">Create your restaurant</Link>
+        </p>
       </form>
     </div>
   )

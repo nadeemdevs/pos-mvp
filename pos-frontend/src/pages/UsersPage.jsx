@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createUser, deleteUser, getUsers, updateUser } from '../services/userService'
 import { getRoles } from '../services/roleService'
+import { getBranches } from '../services/branchService'
 import Modal from '../components/Modal'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
 import { toast } from '../store/toastStore'
 
-const emptyForm = { name: '', email: '', password: '', role: '' }
+const emptyForm = { name: '', email: '', password: '', role: '', branchId: 'main' }
 
 export default function UsersPage() {
   const queryClient = useQueryClient()
@@ -22,6 +23,13 @@ export default function UsersPage() {
 
   const { data: rolesData } = useQuery({ queryKey: ['roles'], queryFn: getRoles })
   const roles = Array.isArray(rolesData) ? rolesData : rolesData?.items || []
+
+  // Branch assignment — Admin-only form field, populated from the tenant's
+  // active branches (single-branch tenants just get the implicit 'main').
+  const { data: branchesData } = useQuery({ queryKey: ['branches'], queryFn: () => getBranches() })
+  const branches = Array.isArray(branchesData) ? branchesData : branchesData?.items || []
+  const activeBranches = branches.filter((b) => b.active !== false)
+  const branchName = (code) => activeBranches.find((b) => b.code === code)?.name || code || 'main'
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['users'] })
 
@@ -64,7 +72,13 @@ export default function UsersPage() {
   const openEdit = (user) => {
     setEditing(user)
     const roleId = typeof user.role === 'object' ? user.role?._id : user.role
-    setForm({ name: user.name, email: user.email, password: '', role: roleId || '' })
+    setForm({
+      name: user.name,
+      email: user.email,
+      password: '',
+      role: roleId || '',
+      branchId: user.branchId || 'main',
+    })
     setModalOpen(true)
   }
 
@@ -77,7 +91,7 @@ export default function UsersPage() {
   const handleSubmit = (e) => {
     e.preventDefault()
     if (editing) {
-      const payload = { name: form.name, email: form.email, role: form.role }
+      const payload = { name: form.name, email: form.email, role: form.role, branchId: form.branchId }
       if (form.password) payload.password = form.password
       updateMutation.mutate({ id: editing._id || editing.id, data: payload })
     } else {
@@ -109,6 +123,7 @@ export default function UsersPage() {
                 <th>Name</th>
                 <th>Email</th>
                 <th>Role</th>
+                <th>Branch</th>
                 <th></th>
               </tr>
             </thead>
@@ -118,6 +133,7 @@ export default function UsersPage() {
                   <td>{u.name}</td>
                   <td>{u.email}</td>
                   <td>{typeof u.role === 'object' ? u.role?.name : u.role}</td>
+                  <td>{branchName(u.branchId)}</td>
                   <td className="table-actions">
                     <button className="btn btn-ghost btn-sm" onClick={() => openEdit(u)}>
                       Edit
@@ -181,6 +197,20 @@ export default function UsersPage() {
               {roles.map((r) => (
                 <option key={r._id || r.id} value={r._id || r.id}>
                   {r.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Branch</span>
+            <select
+              value={form.branchId}
+              onChange={(e) => setForm({ ...form, branchId: e.target.value })}
+            >
+              {activeBranches.length === 0 && <option value="main">main</option>}
+              {activeBranches.map((b) => (
+                <option key={b._id || b.id || b.code} value={b.code}>
+                  {b.name}
                 </option>
               ))}
             </select>
