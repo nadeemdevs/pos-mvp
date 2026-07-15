@@ -12,15 +12,27 @@ const getOne = asyncHandler(async (req, res) => {
   res.json(branch);
 });
 
+// 'all' is a reserved sentinel used by the "All Branches" combined view
+// (see tenantContext.js) — never a real branch code.
+function isReservedCode(code) {
+  return typeof code === 'string' && code.trim().toLowerCase() === 'all';
+}
+
 const create = asyncHandler(async (req, res) => {
   const { code, name, address, phone, active } = req.body;
   if (!code || !name) return res.status(400).json({ message: 'code and name are required' });
+  if (isReservedCode(code)) {
+    return res.status(400).json({ message: "'all' is reserved and cannot be used as a branch code." });
+  }
   const branch = await Branch.create({ code, name, address, phone, active });
   res.status(201).json(branch);
 });
 
 const update = asyncHandler(async (req, res) => {
   const { code, name, address, phone, active } = req.body;
+  if (isReservedCode(code)) {
+    return res.status(400).json({ message: "'all' is reserved and cannot be used as a branch code." });
+  }
   const update = { code, name, address, phone, active };
   const branch = await Branch.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
   if (!branch) return res.status(404).json({ message: 'Branch not found' });

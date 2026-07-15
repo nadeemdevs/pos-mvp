@@ -1,14 +1,67 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  Building2,
+  ChevronsLeft,
+  ChevronsRight,
+  CreditCard,
+  Download,
+  Gift,
+  Percent,
+  Printer,
+  QrCode,
+  ShieldCheck,
+  SlidersHorizontal,
+  Store,
+  Truck,
+  UserCircle,
+} from 'lucide-react'
 import { getSettings, updateSettings } from '../services/settingsService'
 import { testPrint } from '../services/printService'
 import { createBranch, getBranches, updateBranch } from '../services/branchService'
 import { setApprovalPin } from '../services/approvalService'
+import { changeEmail, changePassword } from '../services/authService'
+import api from '../services/api'
 import { useAuthStore } from '../store/authStore'
 import { toast } from '../store/toastStore'
 import Spinner from '../components/Spinner'
 import Modal from '../components/Modal'
 import EmptyState from '../components/EmptyState'
+
+const NAV_SECTIONS_STORAGE_KEY = 'settingsNavCollapsed'
+
+// Maps each nav entry to its icon and label. The first 8 (up to 'printing')
+// all live inside the single shared <form> — they're rendered/hidden by
+// conditionally showing their JSX, never unmounted from the form, so the
+// shared save button covers all of them. The last 4 are independent,
+// self-contained cards with their own save flow (see AccountCard,
+// DataExportCard, DeliveryPartnersCard is actually part of the shared form —
+// ApprovalsCard, BranchesCard, AccountCard, DataExportCard below).
+const SETTINGS_SECTIONS = [
+  { key: 'general', label: 'General', icon: Store },
+  { key: 'payments', label: 'Payment Terminals', icon: CreditCard },
+  { key: 'discounts', label: 'Discounts & Rounding', icon: Percent },
+  { key: 'features', label: 'Features', icon: SlidersHorizontal },
+  { key: 'online', label: 'Online Ordering', icon: QrCode },
+  { key: 'delivery', label: 'Delivery Partners', icon: Truck },
+  { key: 'loyalty', label: 'Loyalty', icon: Gift },
+  { key: 'printing', label: 'Printing', icon: Printer },
+  { key: 'approvals', label: 'Approvals', icon: ShieldCheck, permission: 'settings.manage' },
+  { key: 'branches', label: 'Branches', icon: Building2, permission: 'branches.manage' },
+  { key: 'account', label: 'Account', icon: UserCircle },
+  { key: 'export', label: 'Data Export', icon: Download, permission: 'settings.manage' },
+]
+
+const SHARED_FORM_SECTIONS = new Set([
+  'general',
+  'payments',
+  'discounts',
+  'features',
+  'online',
+  'delivery',
+  'loyalty',
+  'printing',
+])
 
 const emptyForm = {
   restaurantName: '',
@@ -55,6 +108,11 @@ const emptyDelivery = {
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const [activeSection, setActiveSection] = useState('general')
+  const [navCollapsed, setNavCollapsed] = useState(
+    () => localStorage.getItem(NAV_SECTIONS_STORAGE_KEY) === '1'
+  )
   const [form, setForm] = useState(emptyForm)
   const [paymentProviders, setPaymentProviders] = useState(emptyPaymentProviders)
   const [discounts, setDiscounts] = useState(emptyDiscounts)
@@ -66,6 +124,22 @@ export default function SettingsPage() {
   const [browserTestPayload, setBrowserTestPayload] = useState(null)
   const [pin, setPin] = useState('')
   const [pinConfirm, setPinConfirm] = useState('')
+
+  const toggleNavCollapsed = () => {
+    setNavCollapsed((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem(NAV_SECTIONS_STORAGE_KEY, next ? '1' : '0')
+      } catch {
+        // localStorage may be unavailable (private mode); non-fatal.
+      }
+      return next
+    })
+  }
+
+  const visibleSections = SETTINGS_SECTIONS.filter(
+    (s) => !s.permission || hasPermission(s.permission)
+  )
 
   const { data, isLoading } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
 
@@ -323,8 +397,36 @@ export default function SettingsPage() {
       <h1 className="page-title">Settings</h1>
       <p className="page-subtitle">Restaurant profile and defaults</p>
 
+      <div className={`settings-layout${navCollapsed ? ' settings-layout-collapsed' : ''}`}>
+        <nav className="settings-nav" aria-label="Settings sections">
+          <button
+            type="button"
+            className="settings-nav-toggle"
+            onClick={toggleNavCollapsed}
+            title={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+          >
+            {navCollapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
+            {!navCollapsed && <span>Collapse</span>}
+          </button>
+          {visibleSections.map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              type="button"
+              title={label}
+              className={'settings-nav-item' + (activeSection === key ? ' active' : '')}
+              onClick={() => setActiveSection(key)}
+            >
+              <Icon size={18} className="settings-nav-icon" />
+              {!navCollapsed && <span>{label}</span>}
+            </button>
+          ))}
+        </nav>
+
+        <div className="settings-content">
       <form onSubmit={handleSubmit}>
+        {activeSection === 'general' && (
         <div className="card settings-form">
+          <h2>General</h2>
           <label className="field">
             <span>Restaurant Name</span>
             <input
@@ -388,7 +490,9 @@ export default function SettingsPage() {
             />
           </label>
         </div>
+        )}
 
+        {activeSection === 'payments' && (
         <div className="card settings-form payment-terminals-card">
           <h2>Payment Terminals</h2>
           <p className="page-subtitle">
@@ -532,7 +636,10 @@ export default function SettingsPage() {
             )
           })}
         </div>
+        )}
 
+        {activeSection === 'discounts' && (
+        <>
         <div className="card settings-form">
           <h2>Discount Rules</h2>
           <label className="field">
@@ -605,7 +712,10 @@ export default function SettingsPage() {
           </label>
           <p className="page-subtitle">Round totals to the nearest ₹1</p>
         </div>
+        </>
+        )}
 
+        {activeSection === 'features' && (
         <div className="card settings-form">
           <h2>Features</h2>
           <label className="checkbox-field">
@@ -665,7 +775,9 @@ export default function SettingsPage() {
             <span>Enable Shifts (cash reconciliation)</span>
           </label>
         </div>
+        )}
 
+        {activeSection === 'online' && (
         <div className="card settings-form">
           <h2>Online Ordering</h2>
           <label className="checkbox-field">
@@ -680,10 +792,13 @@ export default function SettingsPage() {
             Guests scan a table QR to order; items arrive as unfired lines for staff to fire.
           </p>
         </div>
+        )}
 
-        <DeliveryPartnersCard delivery={delivery} onUpdate={updateDeliveryField} />
+        {activeSection === 'delivery' && (
+          <DeliveryPartnersCard delivery={delivery} onUpdate={updateDeliveryField} />
+        )}
 
-        {features.loyalty && (
+        {activeSection === 'loyalty' && features.loyalty && (
           <div className="card settings-form">
             <h2>Loyalty</h2>
             <div className="field-row">
@@ -751,6 +866,7 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {activeSection === 'printing' && (
         <div className="card settings-form printing-card">
           <h2>Printing</h2>
           <p className="page-subtitle">
@@ -808,12 +924,15 @@ export default function SettingsPage() {
             </div>
           ))}
         </div>
+        )}
 
-        <div className="modal-actions">
-          <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
-            {mutation.isPending ? 'Saving…' : 'Save Settings'}
-          </button>
-        </div>
+        {SHARED_FORM_SECTIONS.has(activeSection) && (
+          <div className="settings-savebar">
+            <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
+              {mutation.isPending ? 'Saving…' : 'Save Settings'}
+            </button>
+          </div>
+        )}
       </form>
 
       {browserTestPayload && (
@@ -826,17 +945,201 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <ApprovalsCard
-        pin={pin}
-        pinConfirm={pinConfirm}
-        setPin={setPin}
-        setPinConfirm={setPinConfirm}
-        onSubmit={handlePinSubmit}
-        isSubmitting={pinMutation.isPending}
-        maxPercent={discounts.maxPercent}
-      />
+      {activeSection === 'approvals' && (
+        <ApprovalsCard
+          pin={pin}
+          pinConfirm={pinConfirm}
+          setPin={setPin}
+          setPinConfirm={setPinConfirm}
+          onSubmit={handlePinSubmit}
+          isSubmitting={pinMutation.isPending}
+          maxPercent={discounts.maxPercent}
+        />
+      )}
 
-      <BranchesCard />
+      {activeSection === 'account' && <AccountCard />}
+
+      {activeSection === 'export' && <DataExportCard />}
+
+      {activeSection === 'branches' && <BranchesCard />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Own-account self-service — available to ANY authenticated user (not gated
+// by settings.manage), since it only ever touches the caller's own account.
+function AccountCard() {
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState('')
+
+  const [newEmail, setNewEmail] = useState('')
+  const [emailCurrentPassword, setEmailCurrentPassword] = useState('')
+  const [emailChangedNote, setEmailChangedNote] = useState('')
+
+  const passwordMutation = useMutation({
+    mutationFn: () => changePassword({ currentPassword, newPassword }),
+    onSuccess: () => {
+      toast('Password changed', 'success')
+      setCurrentPassword('')
+      setNewPassword('')
+      setNewPasswordConfirm('')
+    },
+    onError: (e) => toast(e.response?.data?.message || 'Failed to change password', 'error'),
+  })
+
+  const emailMutation = useMutation({
+    mutationFn: () => changeEmail({ newEmail, currentPassword: emailCurrentPassword }),
+    onSuccess: () => {
+      setEmailChangedNote('A new verification email has been sent to your new address.')
+      toast('Email changed', 'success')
+      setNewEmail('')
+      setEmailCurrentPassword('')
+    },
+    onError: (e) => toast(e.response?.data?.message || 'Failed to change email', 'error'),
+  })
+
+  const handlePasswordSubmit = (e) => {
+    e.preventDefault()
+    if (newPassword.length < 8) {
+      toast('New password must be at least 8 characters', 'error')
+      return
+    }
+    if (newPassword !== newPasswordConfirm) {
+      toast('New passwords do not match', 'error')
+      return
+    }
+    passwordMutation.mutate()
+  }
+
+  const handleEmailSubmit = (e) => {
+    e.preventDefault()
+    setEmailChangedNote('')
+    emailMutation.mutate()
+  }
+
+  return (
+    <div className="card settings-form">
+      <h2>Account</h2>
+      <p className="page-subtitle">Manage your own login credentials.</p>
+
+      <div className="field-row">
+        <form onSubmit={handlePasswordSubmit} style={{ flex: 1 }}>
+          <span className="field-label">Change Password</span>
+          <label className="field">
+            <span>Current Password</span>
+            <input
+              type="password"
+              required
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>New Password</span>
+            <input
+              type="password"
+              required
+              minLength={8}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Confirm New Password</span>
+            <input
+              type="password"
+              required
+              minLength={8}
+              value={newPasswordConfirm}
+              onChange={(e) => setNewPasswordConfirm(e.target.value)}
+            />
+          </label>
+          <div className="modal-actions">
+            <button type="submit" className="btn btn-primary" disabled={passwordMutation.isPending}>
+              {passwordMutation.isPending ? 'Saving…' : 'Change Password'}
+            </button>
+          </div>
+        </form>
+
+        <form onSubmit={handleEmailSubmit} style={{ flex: 1 }}>
+          <span className="field-label">Change Email</span>
+          <label className="field">
+            <span>New Email</span>
+            <input
+              type="email"
+              required
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Current Password</span>
+            <input
+              type="password"
+              required
+              value={emailCurrentPassword}
+              onChange={(e) => setEmailCurrentPassword(e.target.value)}
+            />
+          </label>
+          {emailChangedNote && <p className="field-hint">{emailChangedNote}</p>}
+          <div className="modal-actions">
+            <button type="submit" className="btn btn-primary" disabled={emailMutation.isPending}>
+              {emailMutation.isPending ? 'Saving…' : 'Change Email'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// Gated on settings.manage. Downloads a JSON bundle of this tenant's data via
+// an authenticated blob request (the auth header can't be attached to a plain
+// <a href> download, so we fetch the blob ourselves and trigger the save).
+function DataExportCard() {
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const [isExporting, setIsExporting] = useState(false)
+
+  if (!hasPermission('settings.manage')) return null
+
+  const handleExport = async () => {
+    setIsExporting(true)
+    try {
+      const response = await api.get('/settings/export', { responseType: 'blob' })
+      const disposition = response.headers['content-disposition'] || ''
+      const match = disposition.match(/filename="([^"]+)"/)
+      const filename = match ? match[1] : 'export.json'
+
+      const url = window.URL.createObjectURL(response.data)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+
+      toast('Export downloaded', 'success')
+    } catch (e) {
+      toast(e.response?.data?.message || 'Failed to export data', 'error')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  return (
+    <div className="card settings-form">
+      <h2>Data Export</h2>
+      <p className="page-subtitle">
+        Download a JSON snapshot of your restaurant's data — settings, menu, customers, and the
+        last 90 days of invoices.
+      </p>
+      <button type="button" className="btn btn-ghost" onClick={handleExport} disabled={isExporting}>
+        {isExporting ? 'Exporting…' : 'Export my data'}
+      </button>
     </div>
   )
 }
@@ -963,6 +1266,24 @@ function BranchesCard() {
   })
   const branches = Array.isArray(data) ? data : data?.items || []
 
+  // Phase 6.5 — per-user branch locking toggle. Shares the ['settings']
+  // query cache with the rest of this page.
+  const { data: settingsData } = useQuery({
+    queryKey: ['settings'],
+    queryFn: getSettings,
+    enabled: canManageBranches,
+  })
+  const staffCanSwitchBranches = !!settingsData?.branchAccess?.staffCanSwitchBranches
+
+  const branchAccessMutation = useMutation({
+    mutationFn: (staffCanSwitchBranches) => updateSettings({ branchAccess: { staffCanSwitchBranches } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      toast('Branch access setting updated', 'success')
+    },
+    onError: (e) => toast(e.response?.data?.message || 'Failed to update branch access setting', 'error'),
+  })
+
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['branches'] })
 
   const createMutation = useMutation({
@@ -1031,6 +1352,19 @@ function BranchesCard() {
       <p className="page-subtitle">
         Multi-branch operation — coming in a later phase; all data currently lives in the main
         branch.
+      </p>
+
+      <label className="checkbox-field">
+        <input
+          type="checkbox"
+          checked={staffCanSwitchBranches}
+          onChange={(e) => branchAccessMutation.mutate(e.target.checked)}
+          disabled={branchAccessMutation.isPending}
+        />
+        <span>Allow staff to switch between branches</span>
+      </label>
+      <p className="page-subtitle">
+        When off, each staff member can only work in the branch they&apos;re assigned to in Users.
       </p>
 
       {isLoading ? (

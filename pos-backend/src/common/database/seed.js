@@ -117,6 +117,13 @@ async function run() {
   });
   console.log('[seed] roles, settings, branch, admin user upserted (admin@pos.local / admin123)');
 
+  // Phase 6.4a — Arabian Cafe (the 'default' tenant) is now a plain, ordinary
+  // tenant, exactly as it should be. The old Phase 6.2 platformAdmin flag on
+  // admin@pos.local has been retired entirely (see migrateRemovePlatformAdmin.js
+  // for the one-off cleanup of any live documents that still carry it). The
+  // platform operator is now a completely separate identity — bootstrap one
+  // via `npm run create-operator`.
+
   await seedMenu();
   console.log('[seed] categories and menu items upserted');
 

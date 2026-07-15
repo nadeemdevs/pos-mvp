@@ -12,7 +12,16 @@ import { getSettings } from '../services/settingsService'
 // the URL is reached. `requireFeature` is the generic Phase 5 equivalent —
 // pass a settings.features key (e.g. "inventory") to hide the route unless
 // that flag is on.
-export default function ProtectedRoute({ permission, anyPermission, requireDineIn, requireFeature }) {
+//
+// Phase 6.4a — the platform surface no longer goes through this component at
+// all (it has its own PlatformProtectedRoute against a separate operator
+// identity/session); the old `requirePlatformAdmin` prop is retired.
+export default function ProtectedRoute({
+  permission,
+  anyPermission,
+  requireDineIn,
+  requireFeature,
+}) {
   const token = useAuthStore((s) => s.token)
   const hasPermission = useAuthStore((s) => s.hasPermission)
 

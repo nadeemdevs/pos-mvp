@@ -10,6 +10,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 
+const config = require('./config');
 const { notFound, errorHandler } = require('./common/middleware/error');
 const tenantContext = require('./common/middleware/tenantContext');
 
@@ -39,11 +40,18 @@ const approvalsRoutes = require('./modules/approvals/approvals.routes');
 const publicRoutes = require('./modules/public/public.routes');
 const deliveryRoutes = require('./modules/delivery/delivery.routes');
 const analyticsRoutes = require('./modules/analytics/analytics.routes');
+const platformRoutes = require('./modules/platform/platform.routes');
 
 const app = express();
 
 app.use(helmet());
-app.use(cors());
+// CORS origin is env-configurable (CORS_ORIGIN); '*' in dev. A comma-separated
+// list becomes an array of allowed origins.
+const corsOrigin =
+  config.corsOrigin === '*'
+    ? '*'
+    : config.corsOrigin.split(',').map((o) => o.trim()).filter(Boolean);
+app.use(cors({ origin: corsOrigin }));
 // Capture the raw request body alongside the parsed one — needed by webhook
 // signature verification (e.g. WorldlineProvider.verifyCallback), since
 // JSON.stringify(req.body) doesn't reliably reproduce the exact bytes a vendor
@@ -106,6 +114,10 @@ app.use('/api/approvals', approvalsRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/delivery', deliveryRoutes);
 app.use('/api/analytics', analyticsRoutes);
+// Phase 6.4a — cross-tenant platform-operator surface. Gated entirely by
+// requirePlatformAuth inside the router (a separate operator identity/token
+// scope, NOT requireAuth/tenant users) — see requirePlatformAuth.js.
+app.use('/api/platform', platformRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

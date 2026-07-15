@@ -12,12 +12,14 @@ import {
 import { getTables } from '../services/tableService'
 import { useSocketEvents } from '../hooks/useSocketEvents'
 import { toast } from '../store/toastStore'
+import { useBranchStore } from '../store/branchStore'
 import { todayStr } from '../utils/format'
 import Modal from '../components/Modal'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
 import CustomerLookup from '../components/CustomerLookup'
+import BranchRequiredNotice from '../components/BranchRequiredNotice'
 
 const STATUS_FILTERS = [
   { value: '', label: 'All' },
@@ -216,6 +218,7 @@ function SeatModal({ reservation, tables, onClose, onConfirm, isSubmitting }) {
 }
 
 export default function ReservationsPage() {
+  const activeBranch = useBranchStore((s) => s.activeBranch)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [date, setDate] = useState(todayStr())
@@ -321,6 +324,8 @@ export default function ReservationsPage() {
       createMutation.mutate(payload)
     }
   }
+
+  if (activeBranch === 'all') return <BranchRequiredNotice />
 
   return (
     <div>

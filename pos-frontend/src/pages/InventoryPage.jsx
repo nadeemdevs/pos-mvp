@@ -8,8 +8,10 @@ import {
   getInventoryLedger,
   updateInventoryItem,
 } from '../services/inventoryService'
+import { getBranches } from '../services/branchService'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useSocketEvents } from '../hooks/useSocketEvents'
+import { useBranchStore } from '../store/branchStore'
 import Modal from '../components/Modal'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
@@ -35,6 +37,20 @@ const emptyAdjustForm = { type: 'ADJUSTMENT', sign: '+', qty: '', note: '' }
 export default function InventoryPage() {
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
+  const activeBranch = useBranchStore((s) => s.activeBranch)
+  const showBranchColumn = activeBranch === 'all'
+
+  // Only needed to resolve a branchId -> display name when showing the
+  // combined "All Branches" list — a plain unfiltered side-by-side view, not
+  // a merge/sum of rows.
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches'],
+    queryFn: () => getBranches(),
+    enabled: showBranchColumn,
+    retry: false,
+  })
+  const branches = Array.isArray(branchesData) ? branchesData : branchesData?.items || []
+  const branchName = (code) => branches.find((b) => b.code === code)?.name || code || '—'
 
   const [searchInput, setSearchInput] = useState('')
   const [lowOnly, setLowOnly] = useState(searchParams.get('low') === '1')
@@ -277,6 +293,7 @@ export default function InventoryPage() {
                   <th>Min Stock</th>
                   <th>Avg Cost</th>
                   <th>Status</th>
+                  {showBranchColumn && <th>Branch</th>}
                   <th></th>
                 </tr>
               </thead>
@@ -304,6 +321,7 @@ export default function InventoryPage() {
                           {inactive ? 'Inactive' : 'Active'}
                         </span>
                       </td>
+                      {showBranchColumn && <td>{branchName(item.branchId)}</td>}
                       <td className="table-actions">
                         <button className="btn btn-ghost btn-sm" onClick={() => openAdjust(item)}>
                           Adjust

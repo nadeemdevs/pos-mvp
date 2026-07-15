@@ -1,7 +1,15 @@
 const bcrypt = require('bcryptjs');
 const Setting = require('./setting.model');
+const Tenant = require('../tenants/tenant.model');
+const Category = require('../menu/category.model');
+const MenuItem = require('../menu/menuItem.model');
+const Customer = require('../customers/customer.model');
+const Invoice = require('../billing/invoice.model');
+const Branch = require('../branches/branch.model');
+const Table = require('../tables/table.model');
 const asyncHandler = require('../../common/utils/asyncHandler');
 const auditService = require('../audit/audit.service');
+const { invalidateBranchAccess } = require('../../common/middleware/tenantContext');
 
 // pinHash is a secret — never let it leave the server via GET /api/settings.
 function stripSecrets(settings) {
@@ -121,6 +129,18 @@ function mergeDelivery(current, incoming) {
   return merged;
 }
 
+// Phase 6.5 — per-user branch locking toggle.
+function mergeBranchAccess(current, incoming) {
+  const currentObj = current && current.toObject ? current.toObject() : current || {};
+  const merged = { ...currentObj };
+
+  if (incoming.staffCanSwitchBranches !== undefined) {
+    merged.staffCanSwitchBranches = Boolean(incoming.staffCanSwitchBranches);
+  }
+
+  return merged;
+}
+
 // Deep-merge round-trip for settings.loyalty — a PUT touching only e.g.
 // { loyalty: { pointsPer100: 10 } } must not wipe out tiers/referralBonus/etc.
 function mergeLoyalty(current, incoming) {
@@ -165,6 +185,7 @@ const updateSettings = asyncHandler(async (req, res) => {
     loyalty,
     approvals,
     delivery,
+    branchAccess,
   } = req.body;
 
   let settings = await Setting.findOne();
@@ -172,6 +193,7 @@ const updateSettings = asyncHandler(async (req, res) => {
     settings = await Setting.create({});
   }
 
+  const previousName = settings.restaurantName;
   settings.restaurantName = restaurantName ?? settings.restaurantName;
   settings.address = address ?? settings.address;
   settings.phone = phone ?? settings.phone;
@@ -212,7 +234,34 @@ const updateSettings = asyncHandler(async (req, res) => {
     settings.delivery = mergeDelivery(settings.delivery, delivery);
   }
 
+  if (branchAccess) {
+    settings.branchAccess = mergeBranchAccess(settings.branchAccess, branchAccess);
+    // Take effect on the very next request rather than waiting out the
+    // in-process cache TTL in tenantContext.js.
+    invalidateBranchAccess(req.tenantId || (req.user && req.user.tenantId) || 'default');
+  }
+
   await settings.save();
+
+  // Phase 6.2 — keep the platform Tenant.name in sync when the restaurant is
+  // renamed via settings (slug is immutable, so only the display name moves).
+  // The Tenant registry is not tenant-scoped, so resolve it by the caller's
+  // tenantId explicitly.
+  if (settings.restaurantName !== previousName) {
+    const tenantId = req.tenantId || (req.user && req.user.tenantId) || 'default';
+    const tenant = await Tenant.findOne({ slug: tenantId });
+    if (tenant && tenant.name !== settings.restaurantName) {
+      tenant.name = settings.restaurantName;
+      await tenant.save();
+      auditService.log({
+        req,
+        action: 'tenant.renamed',
+        entity: 'Tenant',
+        entityId: tenant._id,
+        meta: { slug: tenantId, from: previousName, to: settings.restaurantName },
+      });
+    }
+  }
 
   auditService.log({
     req,
@@ -256,4 +305,81 @@ const setApprovalPin = asyncHandler(async (req, res) => {
   res.json({ message: 'Approval PIN updated' });
 });
 
-module.exports = { getSettings, updateSettings, setApprovalPin };
+// Strips secrets from a settings doc for the tenant data-export bundle —
+// pinHash (approvals) plus any delivery/payment provider secrets. Deliberately
+// separate from stripSecrets() above (used by GET /api/settings), since the
+// export shape doesn't need the `pinSet` convenience flag.
+function stripSettingsForExport(settings) {
+  const obj = settings.toObject ? settings.toObject() : settings;
+  const clone = JSON.parse(JSON.stringify(obj));
+
+  if (clone.approvals) {
+    delete clone.approvals.pinHash;
+  }
+  if (clone.delivery) {
+    for (const key of Object.keys(clone.delivery)) {
+      if (clone.delivery[key] && typeof clone.delivery[key] === 'object') {
+        delete clone.delivery[key].secret;
+      }
+    }
+  }
+  if (clone.paymentProviders) {
+    if (clone.paymentProviders.pinelabs) delete clone.paymentProviders.pinelabs.securityToken;
+    if (clone.paymentProviders.worldline) delete clone.paymentProviders.worldline.securityToken;
+  }
+
+  return clone;
+}
+
+// GET /api/settings/export — AUTHENTICATED, permission 'settings.manage'.
+// Uses AMBIENT tenant context (plain find({}) — the existing tenantPlugin
+// scoping hooks already confine these to the caller's tenant); deliberately
+// does NOT use skipTenantScope here, unlike auth's global-email lookups.
+const exportTenantData = asyncHandler(async (req, res) => {
+  const tenantSlug = req.tenantId || 'default';
+  const tenant = await Tenant.findOne({ slug: tenantSlug });
+
+  let settings = await Setting.findOne();
+  if (!settings) settings = await Setting.create({});
+
+  const [categories, menuItems, customers, branches, tables] = await Promise.all([
+    Category.find({}).lean(),
+    MenuItem.find({}).lean(),
+    Customer.find({}).lean(),
+    Branch.find({}).lean(),
+    Table.find({}).lean(),
+  ]);
+
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const invoices = await Invoice.find({ createdAt: { $gte: ninetyDaysAgo } }).lean();
+
+  const bundle = {
+    exportedAt: new Date().toISOString(),
+    tenant: {
+      name: tenant ? tenant.name : tenantSlug,
+      slug: tenant ? tenant.slug : tenantSlug,
+    },
+    settings: stripSettingsForExport(settings),
+    categories,
+    menuItems,
+    customers,
+    invoices,
+    branches,
+    tables,
+  };
+
+  auditService.log({
+    req,
+    action: 'tenant.data_exported',
+    entity: 'Tenant',
+    entityId: tenant ? tenant._id : undefined,
+    meta: { slug: tenantSlug },
+  });
+
+  const dateStamp = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Disposition', `attachment; filename="${tenantSlug}-export-${dateStamp}.json"`);
+  res.setHeader('Content-Type', 'application/json');
+  res.send(JSON.stringify(bundle, null, 2));
+});
+
+module.exports = { getSettings, updateSettings, setApprovalPin, exportTenantData };

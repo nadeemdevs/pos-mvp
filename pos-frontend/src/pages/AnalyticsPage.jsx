@@ -1,6 +1,15 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import {
   getAnalyticsOverview,
   getChannelBreakdown,
   getInventoryValue,
@@ -8,6 +17,7 @@ import {
   getPeakHours,
 } from '../services/analyticsService'
 import { getSettings } from '../services/settingsService'
+import { useBranchStore } from '../store/branchStore'
 import { formatCurrency, todayStr } from '../utils/format'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
@@ -31,6 +41,7 @@ export default function AnalyticsPage() {
   const [from, setFrom] = useState(todayStr())
   const [to, setTo] = useState(todayStr())
   const [activeRange, setActiveRange] = useState('today')
+  const activeBranch = useBranchStore((s) => s.activeBranch)
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
   const currency = settings?.currency || 'INR'
@@ -81,6 +92,9 @@ export default function AnalyticsPage() {
         <div>
           <h1 className="page-title">Analytics</h1>
           <p className="page-subtitle">Revenue, profitability and channel performance</p>
+          {activeBranch === 'all' && (
+            <p className="page-subtitle">Showing combined data across all branches</p>
+          )}
         </div>
         <div className="analytics-range-controls">
           <div className="chip-row">
@@ -169,6 +183,38 @@ function OverviewCards({ data, loading, currency }) {
   )
 }
 
+// "9:00" → "9 AM" / "0:00" → "12 AM" / "13:00" → "1 PM" — compact 12-hour
+// labels read better on a 24-category axis than raw 24hr hour numbers.
+function formatHourLabel(hour) {
+  const period = hour < 12 ? 'AM' : 'PM'
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12
+  return `${displayHour} ${period}`
+}
+
+function formatCompactAmount(value) {
+  return new Intl.NumberFormat('en-IN', { notation: 'compact', maximumFractionDigits: 1 }).format(
+    value
+  )
+}
+
+function PeakHoursTooltip({ active, payload, currency }) {
+  if (!active || !payload?.length) return null
+  const { hour, revenue, count } = payload[0].payload
+  return (
+    <div className="peak-hours-tooltip">
+      <div className="peak-hours-tooltip-title">{formatHourLabel(hour)}</div>
+      <div className="peak-hours-tooltip-row">
+        <span>Revenue</span>
+        <strong>{formatCurrency(revenue, currency)}</strong>
+      </div>
+      <div className="peak-hours-tooltip-row">
+        <span>Orders</span>
+        <strong>{count}</strong>
+      </div>
+    </div>
+  )
+}
+
 function PeakHoursCard({ data, loading, currency }) {
   const byHour = useMemo(() => {
     const rows = Array.isArray(data) ? data : data?.items || []
@@ -180,7 +226,6 @@ function PeakHoursCard({ data, loading, currency }) {
     }))
   }, [data])
   const rows = Array.isArray(data) ? data : data?.items || []
-  const maxRevenue = Math.max(1, ...byHour.map((h) => h.revenue))
 
   return (
     <div className="card">
@@ -191,18 +236,38 @@ function PeakHoursCard({ data, loading, currency }) {
         <EmptyState title="No sales data in this range" />
       ) : (
         <div className="peak-hours-chart">
-          {byHour.map((h) => (
-            <div key={h.hour} className="peak-hours-bar-wrap">
-              <div
-                className="peak-hours-bar"
-                title={`${formatCurrency(h.revenue, currency)} · ${h.count} orders`}
-                style={{ height: `${Math.max(2, (h.revenue / maxRevenue) * 100)}%` }}
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={byHour} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid vertical={false} stroke="var(--border)" />
+              <XAxis
+                dataKey="hour"
+                tickFormatter={formatHourLabel}
+                interval={2}
+                tickLine={false}
+                axisLine={{ stroke: 'var(--border)' }}
+                tick={{ fill: 'var(--text-muted)', fontSize: 12 }}
               />
-              <span className="peak-hours-label">
-                {h.hour % 3 === 0 ? `${h.hour}:00` : ''}
-              </span>
-            </div>
-          ))}
+              <YAxis
+                tickFormatter={formatCompactAmount}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: 'var(--text-muted)', fontSize: 12 }}
+                width={44}
+              />
+              <Tooltip
+                content={<PeakHoursTooltip currency={currency} />}
+                cursor={{ fill: 'var(--accent-bg)' }}
+              />
+              <Bar
+                dataKey="revenue"
+                fill="var(--accent)"
+                radius={[4, 4, 0, 0]}
+                maxBarSize={28}
+                animationDuration={500}
+                animationEasing="ease-out"
+              />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       )}
     </div>

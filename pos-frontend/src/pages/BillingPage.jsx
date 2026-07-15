@@ -7,6 +7,7 @@ import { getSettings } from '../services/settingsService'
 import { getCurrentShift } from '../services/shiftService'
 import { setApprovalToken } from '../services/api'
 import { useCartStore } from '../store/cartStore'
+import { useBranchStore } from '../store/branchStore'
 import { toast } from '../store/toastStore'
 import { computeRoundOff, formatCurrency, splitTax } from '../utils/format'
 import HeldBillsModal from '../components/HeldBillsModal'
@@ -18,6 +19,7 @@ import MenuPicker from '../components/MenuPicker'
 import EmptyState from '../components/EmptyState'
 import CustomerLookup from '../components/CustomerLookup'
 import ApprovalPinModal from '../components/ApprovalPinModal'
+import BranchRequiredNotice from '../components/BranchRequiredNotice'
 import { useAuthStore } from '../store/authStore'
 
 function DiscountEditor({ discountType, discountValue, presets, maxPercent, onSetType, onSetValue, onApplyPreset }) {
@@ -84,6 +86,7 @@ function DiscountEditor({ discountType, discountValue, presets, maxPercent, onSe
 }
 
 export default function BillingPage() {
+  const activeBranch = useBranchStore((s) => s.activeBranch)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [heldModalOpen, setHeldModalOpen] = useState(false)
@@ -249,6 +252,10 @@ export default function BillingPage() {
     },
     onError: (e) => toast(e.response?.data?.message || 'Payment failed', 'error'),
   })
+
+  if (activeBranch === 'all') {
+    return <BranchRequiredNotice />
+  }
 
   const handleCardSuccess = (payment) => {
     // Card payments are settled (and the invoice marked PAID) server-side by
