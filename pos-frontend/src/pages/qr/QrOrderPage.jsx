@@ -65,8 +65,8 @@ export default function QrOrderPage() {
   const tableNotFound = tableQuery.isError && !disabledFeature
 
   const menuQuery = useQuery({
-    queryKey: ['public', 'menu'],
-    queryFn: getPublicMenu,
+    queryKey: ['public', 'menu', qrToken],
+    queryFn: () => getPublicMenu(qrToken),
     retry: false,
     enabled: !!qrToken && !disabledFeature,
   })
@@ -133,6 +133,31 @@ export default function QrOrderPage() {
     } else {
       addSimpleItem(item)
     }
+  }
+
+  // Total quantity per menu item across all cart lines (an item customised
+  // with different modifiers/notes spans several lines) — drives the in-cart
+  // stroke and the +/- stepper on each menu card.
+  const cartQtyByItem = useMemo(() => {
+    const map = new Map()
+    for (const line of cart) {
+      map.set(line.menuItemId, (map.get(line.menuItemId) || 0) + line.qty)
+    }
+    return map
+  }, [cart])
+
+  // "−" on a menu card: decrement the most recently added line for that item
+  // (drop the line when it hits zero).
+  const decrementItem = (item) => {
+    const menuItemId = item._id || item.id
+    setCart((prev) => {
+      const idx = prev.findLastIndex((l) => l.menuItemId === menuItemId)
+      if (idx < 0) return prev
+      if (prev[idx].qty <= 1) return prev.filter((_, i) => i !== idx)
+      const next = [...prev]
+      next[idx] = { ...next[idx], qty: next[idx].qty - 1 }
+      return next
+    })
   }
 
   const handlePlaceOrder = async () => {
@@ -236,6 +261,8 @@ export default function QrOrderPage() {
             categories={categories}
             items={items}
             onItemTap={handleItemTap}
+            cartQtyByItem={cartQtyByItem}
+            onDecrement={decrementItem}
           />
         )}
 
@@ -265,7 +292,7 @@ export default function QrOrderPage() {
   )
 }
 
-function MenuView({ loading, error, categories, items, onItemTap }) {
+function MenuView({ loading, error, categories, items, onItemTap, cartQtyByItem, onDecrement }) {
   const [categoryFilter, setCategoryFilter] = useState('')
 
   if (loading) return <Spinner label="Loading menu…" />
@@ -320,22 +347,59 @@ function MenuView({ loading, error, categories, items, onItemTap }) {
         </div>
       ) : (
         <div className="qr-item-list">
-          {filtered.map((item) => (
-            <button
-              key={item._id || item.id}
-              type="button"
-              className="qr-item-row"
-              onClick={() => onItemTap(item)}
-            >
-              <span className="qr-item-info">
-                <span className="qr-item-name">{item.name}</span>
-                {Array.isArray(item.modifiers) && item.modifiers.length > 0 && (
-                  <span className="qr-item-modifier-hint">{item.modifiers.length} options</span>
-                )}
-              </span>
-              <span className="qr-item-price">{formatCurrency(item.price)}</span>
-            </button>
-          ))}
+          {filtered.map((item) => {
+            const id = item._id || item.id
+            const qty = cartQtyByItem?.get(id) || 0
+            return (
+              // A div with button semantics rather than a <button> — the
+              // in-card qty stepper needs real <button>s inside, and buttons
+              // can't nest.
+              <div
+                key={id}
+                role="button"
+                tabIndex={0}
+                className={`qr-item-row${qty > 0 ? ' in-cart' : ''}`}
+                onClick={() => onItemTap(item)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onItemTap(item)
+                  }
+                }}
+              >
+                <span className="qr-item-info">
+                  <span className="qr-item-name">{item.name}</span>
+                  {Array.isArray(item.modifiers) && item.modifiers.length > 0 && (
+                    <span className="qr-item-modifier-hint">{item.modifiers.length} options</span>
+                  )}
+                </span>
+                <span className="qr-item-right">
+                  {qty > 0 && (
+                    <span className="qr-item-stepper" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className="stepper-btn"
+                        aria-label={`Remove one ${item.name}`}
+                        onClick={() => onDecrement(item)}
+                      >
+                        −
+                      </button>
+                      <span className="stepper-qty">{qty}</span>
+                      <button
+                        type="button"
+                        className="stepper-btn"
+                        aria-label={`Add one ${item.name}`}
+                        onClick={() => onItemTap(item)}
+                      >
+                        +
+                      </button>
+                    </span>
+                  )}
+                  <span className="qr-item-price">{formatCurrency(item.price)}</span>
+                </span>
+              </div>
+            )
+          })}
         </div>
       )}
     </>

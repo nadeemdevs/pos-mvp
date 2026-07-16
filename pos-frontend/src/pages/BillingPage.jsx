@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { Palette } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createInvoice, updateInvoice } from '../services/invoiceService'
 import { takePayment } from '../services/paymentService'
@@ -21,6 +22,8 @@ import CustomerLookup from '../components/CustomerLookup'
 import ApprovalPinModal from '../components/ApprovalPinModal'
 import BranchRequiredNotice from '../components/BranchRequiredNotice'
 import { useAuthStore } from '../store/authStore'
+
+const MENU_COLORS_KEY = 'billingMenuColors'
 
 function DiscountEditor({ discountType, discountValue, presets, maxPercent, onSetType, onSetValue, onApplyPreset }) {
   const displayType = discountType || 'FLAT'
@@ -97,6 +100,21 @@ export default function BillingPage() {
   const [paymentResult, setPaymentResult] = useState(null)
   const [approvalModalOpen, setApprovalModalOpen] = useState(false)
   const [approvalAction, setApprovalAction] = useState(null) // 'charge' | 'saveEdit'
+  // Pastel menu-card tints — a per-device cashier preference, on by default.
+  const [menuColors, setMenuColors] = useState(
+    () => localStorage.getItem(MENU_COLORS_KEY) !== '0'
+  )
+
+  const toggleMenuColors = () => {
+    setMenuColors((on) => {
+      try {
+        localStorage.setItem(MENU_COLORS_KEY, on ? '0' : '1')
+      } catch {
+        // localStorage may be unavailable (private mode); non-fatal.
+      }
+      return !on
+    })
+  }
 
   const hasPermission = useAuthStore((s) => s.hasPermission)
 
@@ -318,6 +336,8 @@ export default function BillingPage() {
       <div className="billing-left">
         <MenuPicker
           currency={currency}
+          colorful={menuColors}
+          inCartIds={items.map((i) => i.menuItemId)}
           onItemClick={(item) =>
             cart.add({
               menuItemId: item._id || item.id,
@@ -349,6 +369,13 @@ export default function BillingPage() {
         <div className="cart-header">
           <h2>Current Bill</h2>
           <div className="cart-header-actions">
+            <button
+              className={`btn btn-ghost btn-sm menu-colors-toggle${menuColors ? ' active' : ''}`}
+              title={menuColors ? 'Disable menu colors' : 'Enable menu colors'}
+              onClick={toggleMenuColors}
+            >
+              <Palette size={16} />
+            </button>
             {dineInEnabled && (
               <button className="btn btn-ghost btn-sm" onClick={() => setDineInModalOpen(true)}>
                 Dine-in Bills

@@ -1676,6 +1676,35 @@ button, input, select, textarea {
   box-shadow: var(--shadow);
 }
 
+/* Pastel menu-card tints (toggleable from the billing header). Backgrounds
+   are deliberately light so the dark item name and accent-blue price keep
+   full contrast; text color is pinned so theme overrides can't wash it out. */
+.menu-item-card[class*='pastel-'] {
+  color: #1f2937;
+}
+
+.menu-item-card.pastel-0 { background: #ffe9eb; }
+.menu-item-card.pastel-1 { background: #fdf3d1; }
+.menu-item-card.pastel-2 { background: #ddf6e4; }
+.menu-item-card.pastel-3 { background: #e0edff; }
+.menu-item-card.pastel-4 { background: #f1e8ff; }
+.menu-item-card.pastel-5 { background: #fde8f4; }
+.menu-item-card.pastel-6 { background: #d9f6f0; }
+.menu-item-card.pastel-7 { background: #ffedd9; }
+
+/* Item is already in the current bill — outline (not border) so the card
+   doesn't shift, visible with or without the pastel tints. */
+.menu-item-card.in-cart {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.menu-colors-toggle.active {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
 .menu-item-name {
   font-weight: 600;
   font-size: 14px;
@@ -4396,6 +4425,7 @@ button.banner-link {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   width: 100%;
   padding: 16px;
   border-radius: var(--radius);
@@ -4403,6 +4433,29 @@ button.banner-link {
   background: var(--surface);
   text-align: left;
   min-height: 56px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Item is already in the cart — same inward stroke as the billing menu
+   cards, so it can't shift the list layout. */
+.qr-item-row.in-cart {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.qr-item-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.qr-item-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .qr-item-info {
