@@ -93,6 +93,25 @@ function mergePrinting(current, incoming) {
   return merged;
 }
 
+// receiptTemplate.{header,totals,footer} are shallow-merged so a PUT touching
+// one toggle doesn't wipe its siblings; columns and paperWidth are replaced
+// wholesale (columns is an ordered list — partial merges make no sense).
+function mergeReceiptTemplate(current, incoming) {
+  const currentObj = current && current.toObject ? current.toObject() : current || {};
+  const merged = { ...currentObj };
+
+  if (incoming.paperWidth !== undefined) merged.paperWidth = incoming.paperWidth;
+  if (incoming.columns !== undefined) merged.columns = incoming.columns;
+
+  for (const key of ['header', 'totals', 'footer']) {
+    if (incoming[key]) {
+      merged[key] = { ...(currentObj[key] || {}), ...incoming[key] };
+    }
+  }
+
+  return merged;
+}
+
 function mergeFeatures(current, incoming) {
   const currentObj = current && current.toObject ? current.toObject() : current || {};
   const merged = { ...currentObj };
@@ -184,6 +203,7 @@ const updateSettings = asyncHandler(async (req, res) => {
     discounts,
     rounding,
     printing,
+    receiptTemplate,
     features,
     loyalty,
     approvals,
@@ -221,6 +241,10 @@ const updateSettings = asyncHandler(async (req, res) => {
 
   if (printing) {
     settings.printing = mergePrinting(settings.printing, printing);
+  }
+
+  if (receiptTemplate) {
+    settings.receiptTemplate = mergeReceiptTemplate(settings.receiptTemplate, receiptTemplate);
   }
 
   if (features) {
