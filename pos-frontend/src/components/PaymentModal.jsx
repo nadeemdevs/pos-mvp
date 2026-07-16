@@ -55,7 +55,7 @@ export default function PaymentModal({
   useEffect(() => {
     if (open) {
       setMethod('CASH')
-      setTendered('')
+      setTendered(String(invoice?.total || 0))
       setReference('')
       setCardStage('select')
       setCardPayment(null)
@@ -381,7 +381,7 @@ export default function PaymentModal({
               className="btn btn-ghost btn-sm"
               onClick={() => setTendered(String(total))}
             >
-              Exact
+              Exact ({total.toFixed(2)})
             </button>
             {QUICK_CASH.map((amt) => (
               <button

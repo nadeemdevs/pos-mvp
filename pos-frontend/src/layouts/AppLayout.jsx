@@ -7,6 +7,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Clock,
+  FileText,
   LayoutDashboard,
   LayoutGrid,
   Package,
@@ -84,7 +85,7 @@ function EmailVerificationBanner() {
 const NAV_LINKS = [
   { to: '/', label: 'Dashboard', permission: null, icon: LayoutDashboard },
   { to: '/billing', label: 'Billing', permission: 'billing.create', icon: Receipt },
-  { to: '/invoices', label: 'Invoices', permission: 'billing.view' },
+  { to: '/invoices', label: 'Invoices', permission: 'billing.view', icon: FileText },
   {
     to: '/tables',
     label: 'Tables',
