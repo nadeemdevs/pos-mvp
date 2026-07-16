@@ -10,6 +10,7 @@ const Table = require('../tables/table.model');
 const asyncHandler = require('../../common/utils/asyncHandler');
 const auditService = require('../audit/audit.service');
 const { invalidateBranchAccess } = require('../../common/middleware/tenantContext');
+const { uploadBuffer } = require('../../common/utils/cloudinary');
 
 // pinHash is a secret — never let it leave the server via GET /api/settings.
 function stripSecrets(settings) {
@@ -274,6 +275,42 @@ const updateSettings = asyncHandler(async (req, res) => {
   res.json(stripSecrets(settings));
 });
 
+// PUT /api/settings/logo — multipart upload (see upload.js middleware, field
+// name "logo"). Streams the buffer straight to Cloudinary (no temp file on
+// disk) and stores the returned secure_url on the tenant's settings doc.
+const uploadLogo = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    const err = new Error('logo file is required');
+    err.status = 400;
+    throw err;
+  }
+
+  let settings = await Setting.findOne();
+  if (!settings) {
+    settings = await Setting.create({});
+  }
+
+  const tenantId = req.tenantId || (req.user && req.user.tenantId) || 'default';
+  const result = await uploadBuffer(req.file.buffer, {
+    folder: `pos-mvp/${tenantId}/branding`,
+    public_id: 'logo',
+    overwrite: true,
+    resource_type: 'image',
+  });
+
+  settings.logoUrl = result.secure_url;
+  await settings.save();
+
+  auditService.log({
+    req,
+    action: 'settings.logo_uploaded',
+    entity: 'Setting',
+    entityId: settings._id,
+  });
+
+  res.json(stripSecrets(settings));
+});
+
 // Admin-only. Sets/rotates the manager-override PIN used by POST
 // /api/approvals/verify. The raw PIN is never stored or returned — only its
 // bcrypt hash lives in settings.approvals.pinHash.
@@ -382,4 +419,4 @@ const exportTenantData = asyncHandler(async (req, res) => {
   res.send(JSON.stringify(bundle, null, 2));
 });
 
-module.exports = { getSettings, updateSettings, setApprovalPin, exportTenantData };
+module.exports = { getSettings, updateSettings, uploadLogo, setApprovalPin, exportTenantData };

@@ -16,7 +16,8 @@ import {
   Truck,
   UserCircle,
 } from 'lucide-react'
-import { getSettings, updateSettings } from '../services/settingsService'
+import { getSettings, updateSettings, uploadLogo } from '../services/settingsService'
+import { getInitials } from '../utils/initials'
 import { testPrint } from '../services/printService'
 import { createBranch, getBranches, updateBranch } from '../services/branchService'
 import { setApprovalPin } from '../services/approvalService'
@@ -215,6 +216,22 @@ export default function SettingsPage() {
     },
     onError: (e) => toast(e.response?.data?.message || 'Failed to save settings', 'error'),
   })
+
+  const logoMutation = useMutation({
+    mutationFn: uploadLogo,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      toast('Logo updated', 'success')
+    },
+    onError: (e) => toast(e.response?.data?.message || 'Failed to upload logo', 'error'),
+  })
+
+  const handleLogoChange = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    logoMutation.mutate(file)
+    e.target.value = ''
+  }
 
   const toggleProvider = (code) => {
     setPaymentProviders((prev) => {
@@ -427,6 +444,28 @@ export default function SettingsPage() {
         {activeSection === 'general' && (
         <div className="card settings-form">
           <h2>General</h2>
+          <label className="field">
+            <span>Restaurant Icon</span>
+            <div className="logo-upload-row">
+              <div className="logo-avatar">
+                {data?.logoUrl ? (
+                  <img src={data.logoUrl} alt="Restaurant icon" />
+                ) : (
+                  <span>{getInitials(form.restaurantName) || 'R'}</span>
+                )}
+              </div>
+              <label className="btn btn-ghost btn-sm logo-upload-btn">
+                {logoMutation.isPending ? 'Uploading…' : 'Upload Icon'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={handleLogoChange}
+                  disabled={logoMutation.isPending}
+                />
+              </label>
+            </div>
+          </label>
           <label className="field">
             <span>Restaurant Name</span>
             <input

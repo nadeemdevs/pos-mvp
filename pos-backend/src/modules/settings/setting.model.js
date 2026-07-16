@@ -160,6 +160,9 @@ const approvalsSettingsSchema = new mongoose.Schema(
 const settingSchema = new mongoose.Schema(
   {
     restaurantName: { type: String, default: 'My Restaurant' },
+    // Cloudinary secure_url for the restaurant's uploaded logo/icon. Falls
+    // back to a two-letter initials avatar on the frontend when empty.
+    logoUrl: { type: String, default: '' },
     address: { type: String, default: '' },
     phone: { type: String, default: '' },
     taxRate: { type: Number, default: 5 },

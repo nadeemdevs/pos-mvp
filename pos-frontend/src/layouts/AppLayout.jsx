@@ -23,6 +23,7 @@ import {
   UtensilsCrossed,
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
+import { getInitials } from '../utils/initials'
 import { useBranchStore } from '../store/branchStore'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getSettings } from '../services/settingsService'
@@ -246,9 +247,17 @@ export default function AppLayout() {
     <div className="app-shell">
       <aside className={'sidebar' + (navCollapsed ? ' sidebar-collapsed' : '')}>
         <div className="sidebar-brand" title={settings?.restaurantName || 'POS'}>
-          {navCollapsed
-            ? (settings?.restaurantName || 'POS').charAt(0).toUpperCase()
-            : settings?.restaurantName || 'POS'}
+          {navCollapsed ? (
+            <span className="sidebar-brand-avatar">
+              {settings?.logoUrl ? (
+                <img src={settings.logoUrl} alt={settings?.restaurantName || 'Restaurant icon'} />
+              ) : (
+                getInitials(settings?.restaurantName || 'POS')
+              )}
+            </span>
+          ) : (
+            settings?.restaurantName || 'POS'
+          )}
         </div>
         <button
           type="button"
