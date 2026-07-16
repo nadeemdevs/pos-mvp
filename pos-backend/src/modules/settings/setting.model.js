@@ -165,6 +165,8 @@ const settingSchema = new mongoose.Schema(
     logoUrl: { type: String, default: '' },
     address: { type: String, default: '' },
     phone: { type: String, default: '' },
+    email: { type: String, default: '' },
+    website: { type: String, default: '' },
     taxRate: { type: Number, default: 5 },
     currency: { type: String, default: 'INR' },
     // Drives the SGST/CGST split on invoices (see billing.service.js

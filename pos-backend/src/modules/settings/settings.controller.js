@@ -174,6 +174,8 @@ const updateSettings = asyncHandler(async (req, res) => {
     restaurantName,
     address,
     phone,
+    email,
+    website,
     taxRate,
     currency,
     country,
@@ -198,6 +200,8 @@ const updateSettings = asyncHandler(async (req, res) => {
   settings.restaurantName = restaurantName ?? settings.restaurantName;
   settings.address = address ?? settings.address;
   settings.phone = phone ?? settings.phone;
+  settings.email = email ?? settings.email;
+  settings.website = website ?? settings.website;
   settings.taxRate = taxRate ?? settings.taxRate;
   settings.currency = currency ?? settings.currency;
   settings.country = country ?? settings.country;
