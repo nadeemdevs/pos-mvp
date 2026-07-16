@@ -3549,6 +3549,17 @@ button, input, select, textarea {
   }
 }
 
+/* Table-service bill printing happens without leaving the cart screen — keep
+   the printable receipt out of view until the print media query above shows
+   it. Scoped to screen only so it never overrides the print positioning. */
+@media screen {
+  .printable-area-offscreen {
+    position: absolute;
+    left: -9999px;
+    top: -9999px;
+  }
+}
+
 /* ---------- Phase 5: inventory, purchasing, audit, branches ---------- */
 
 .stat-card-clickable {
