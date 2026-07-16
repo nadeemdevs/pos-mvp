@@ -1856,6 +1856,59 @@ button, input, select, textarea {
   margin-top: 2px;
 }
 
+/* The TOTAL row doubles as the show/hide toggle for the tax breakdown —
+   rendered as a <button> for accessibility, restyled to match the row. */
+.totals-grand-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  border: none;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.totals-grand-toggle > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.totals-grand-toggle svg {
+  color: var(--text-muted);
+}
+
+/* Secondary add-ons (discount / customer / note) live behind compact chips
+   so the cart list above keeps the vertical space. An active chip means its
+   value is set or its editor is open. */
+.cart-addon-chips {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.cart-addon-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cart-addon-chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
 .cart-actions {
   display: flex;
   gap: 10px;

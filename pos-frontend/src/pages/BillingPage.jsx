@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Palette } from 'lucide-react'
+import { ChevronDown, ChevronUp, Palette, Percent, StickyNote, User } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createInvoice, updateInvoice } from '../services/invoiceService'
 import { takePayment } from '../services/paymentService'
@@ -104,6 +104,13 @@ export default function BillingPage() {
   const [menuColors, setMenuColors] = useState(
     () => localStorage.getItem(MENU_COLORS_KEY) !== '0'
   )
+  // The cart list is the cashier's main focus — discount/customer/note are
+  // secondary, opened one at a time from a compact chip row, and the tax
+  // breakdown is collapsed behind the TOTAL row. Keeps the footer short so
+  // the item list gets the vertical space.
+  const [openPanel, setOpenPanel] = useState(null) // 'discount' | 'customer' | 'note' | null
+  const [totalsExpanded, setTotalsExpanded] = useState(false)
+  const togglePanel = (panel) => setOpenPanel((cur) => (cur === panel ? null : panel))
 
   const toggleMenuColors = () => {
     setMenuColors((on) => {
@@ -422,75 +429,123 @@ export default function BillingPage() {
         </div>
 
         <div className="cart-footer">
-          <DiscountEditor
-            discountType={discountType}
-            discountValue={discountValue}
-            presets={presets}
-            maxPercent={maxPercent}
-            onSetType={handleSetDiscountType}
-            onSetValue={handleSetDiscountValue}
-            onApplyPreset={handleApplyPreset}
-          />
-
-          <CustomerLookup
-            customer={customer}
-            onFieldChange={cart.setCustomer}
-            onSelect={cart.setCustomer}
-            onClear={() => cart.setCustomer({ name: '', phone: '' })}
-          />
-
-          <div className="totals-block">
-            <div>
-              <span>Subtotal</span>
-              <span>{formatCurrency(subtotal, currency)}</span>
-            </div>
-            {gstSplitEnabled ? (
-              <>
-                <div>
-                  <span>SGST</span>
-                  <span>{formatCurrency(sgst, currency)}</span>
-                </div>
-                <div>
-                  <span>CGST</span>
-                  <span>{formatCurrency(cgst, currency)}</span>
-                </div>
-              </>
-            ) : (
-              <div>
-                <span>Tax</span>
-                <span>{formatCurrency(tax, currency)}</span>
-              </div>
-            )}
-            <div>
-              <span>
-                Discount
-                {discountType === 'PERCENT' && discountValue ? ` (${discountValue}%)` : ''}
-              </span>
-              <span>-{formatCurrency(discountAmount, currency)}</span>
-            </div>
-            {roundOff !== 0 && (
-              <div>
-                <span>Round off</span>
-                <span>
-                  {roundOff > 0 ? '+' : ''}
-                  {formatCurrency(roundOff, currency)}
-                </span>
-              </div>
-            )}
-            <div className="totals-grand">
-              <span>TOTAL</span>
-              <span>{formatCurrency(displayTotal, currency)}</span>
-            </div>
+          <div className="cart-addon-chips">
+            <button
+              type="button"
+              className={`chip cart-addon-chip ${openPanel === 'discount' || discountAmount > 0 ? 'active' : ''}`}
+              onClick={() => togglePanel('discount')}
+            >
+              <Percent size={13} />
+              {discountAmount > 0
+                ? `-${formatCurrency(discountAmount, currency)}`
+                : 'Discount'}
+            </button>
+            <button
+              type="button"
+              className={`chip cart-addon-chip ${openPanel === 'customer' || customer?.name || customer?.phone ? 'active' : ''}`}
+              onClick={() => togglePanel('customer')}
+            >
+              <User size={13} />
+              {customer?.name || customer?.phone || 'Customer'}
+            </button>
+            <button
+              type="button"
+              className={`chip cart-addon-chip ${openPanel === 'note' || note ? 'active' : ''}`}
+              onClick={() => togglePanel('note')}
+            >
+              <StickyNote size={13} />
+              {note ? 'Note ✓' : 'Note'}
+            </button>
           </div>
 
-          <label className="field hold-note-field">
-            <span>Note (optional)</span>
-            <input
-              placeholder="e.g. Table 4 uncle"
-              value={note}
-              onChange={(e) => cart.setNote(e.target.value)}
+          {openPanel === 'discount' && (
+            <DiscountEditor
+              discountType={discountType}
+              discountValue={discountValue}
+              presets={presets}
+              maxPercent={maxPercent}
+              onSetType={handleSetDiscountType}
+              onSetValue={handleSetDiscountValue}
+              onApplyPreset={handleApplyPreset}
             />
-          </label>
+          )}
+
+          {openPanel === 'customer' && (
+            <CustomerLookup
+              customer={customer}
+              onFieldChange={cart.setCustomer}
+              onSelect={cart.setCustomer}
+              onClear={() => cart.setCustomer({ name: '', phone: '' })}
+            />
+          )}
+
+          {openPanel === 'note' && (
+            <label className="field hold-note-field">
+              <span>Note (optional)</span>
+              <input
+                autoFocus
+                placeholder="e.g. Table 4 uncle"
+                value={note}
+                onChange={(e) => cart.setNote(e.target.value)}
+              />
+            </label>
+          )}
+
+          <div className="totals-block">
+            {totalsExpanded && (
+              <>
+                <div>
+                  <span>Subtotal</span>
+                  <span>{formatCurrency(subtotal, currency)}</span>
+                </div>
+                {gstSplitEnabled ? (
+                  <>
+                    <div>
+                      <span>SGST</span>
+                      <span>{formatCurrency(sgst, currency)}</span>
+                    </div>
+                    <div>
+                      <span>CGST</span>
+                      <span>{formatCurrency(cgst, currency)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <span>Tax</span>
+                    <span>{formatCurrency(tax, currency)}</span>
+                  </div>
+                )}
+                <div>
+                  <span>
+                    Discount
+                    {discountType === 'PERCENT' && discountValue ? ` (${discountValue}%)` : ''}
+                  </span>
+                  <span>-{formatCurrency(discountAmount, currency)}</span>
+                </div>
+                {roundOff !== 0 && (
+                  <div>
+                    <span>Round off</span>
+                    <span>
+                      {roundOff > 0 ? '+' : ''}
+                      {formatCurrency(roundOff, currency)}
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+            <button
+              type="button"
+              className="totals-grand totals-grand-toggle"
+              onClick={() => setTotalsExpanded((e) => !e)}
+              title={totalsExpanded ? 'Hide breakdown' : 'Show breakdown'}
+            >
+              <span>
+                TOTAL
+                {totalsExpanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+              </span>
+              <span>{formatCurrency(displayTotal, currency)}</span>
+            </button>
+          </div>
 
           <div className="cart-actions">
             {isEditingPaid ? (
