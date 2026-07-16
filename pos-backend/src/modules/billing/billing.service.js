@@ -1,6 +1,9 @@
 const Invoice = require('./invoice.model');
+const Payment = require('../payments/payment.model');
 const Setting = require('../settings/setting.model');
 const customersService = require('../customers/customers.service');
+const auditService = require('../audit/audit.service');
+const eventBus = require('../../common/eventBus');
 const { nextInvoiceNumber } = require('../../common/utils/invoiceNumber');
 
 function round2(n) {
@@ -27,6 +30,19 @@ function computeItemTotals(items = []) {
   }
 
   return { subtotal: round2(subtotal), tax: round2(tax) };
+}
+
+// GST-registered Indian businesses must show tax as two equal halves
+// (SGST + CGST) rather than one lump amount. sgst+cgst is made to add up to
+// exactly `tax` (rather than each being a bare tax/2) so rounding never
+// leaves the invoice a cent off.
+function splitGst(tax, settings) {
+  if (!settings || settings.country !== 'India') {
+    return { sgst: 0, cgst: 0 };
+  }
+  const sgst = round2(tax / 2);
+  const cgst = round2(tax - sgst);
+  return { sgst, cgst };
 }
 
 // Normalizes the discount fields a client may send. New clients send
@@ -120,6 +136,7 @@ async function buildInvoice({
 
   const settings = await getSettings();
   const { subtotal, tax } = computeItemTotals(items);
+  const { sgst, cgst } = splitGst(tax, settings);
   const grossTotal = round2(subtotal + tax);
 
   const discount = computeDiscountAmount(subtotal, tax, discountType, discountValue);
@@ -141,6 +158,8 @@ async function buildInvoice({
     items,
     subtotal,
     tax,
+    sgst,
+    cgst,
     discount,
     discountType,
     discountValue,
@@ -208,8 +227,12 @@ async function createFromOrder(order, subsetItems, { label, cashier } = {}) {
   });
 }
 
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function listInvoices(query) {
-  const { date, paymentStatus, status, page = 1, limit = 20 } = query;
+  const { date, paymentStatus, status, search, page = 1, limit = 20 } = query;
   const filter = {};
 
   if (paymentStatus) filter.paymentStatus = paymentStatus;
@@ -219,6 +242,11 @@ async function listInvoices(query) {
     const start = new Date(`${date}T00:00:00.000Z`);
     const end = new Date(`${date}T23:59:59.999Z`);
     filter.createdAt = { $gte: start, $lte: end };
+  }
+
+  if (search && search.trim()) {
+    const re = new RegExp(escapeRegex(search.trim()), 'i');
+    filter.$or = [{ invoiceNumber: re }, { 'customer.phone': re }, { 'customer.name': re }];
   }
 
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -245,7 +273,7 @@ async function getInvoice(id) {
   return invoice;
 }
 
-async function updateInvoice(id, payload, user, { approved = false } = {}) {
+async function updateInvoice(id, payload, user, { approved = false, canEditPaid = false } = {}) {
   const invoice = await Invoice.findById(id);
   if (!invoice) {
     const err = new Error('Invoice not found');
@@ -256,6 +284,11 @@ async function updateInvoice(id, payload, user, { approved = false } = {}) {
   const { items, customer, status, note } = payload;
 
   if (status === 'CANCELLED') {
+    if (invoice.paymentStatus === 'PAID') {
+      const err = new Error('Cannot cancel a paid invoice this way — use refund instead');
+      err.status = 400;
+      throw err;
+    }
     // Give back any loyalty points redeemed against this (unpaid) bill.
     if (invoice.paymentStatus === 'PENDING' && invoice.loyaltyPoints > 0) {
       try {
@@ -271,12 +304,16 @@ async function updateInvoice(id, payload, user, { approved = false } = {}) {
   }
 
   const discountFieldsChanged = hasDiscountFields(payload);
+  const editingPaidInvoice = invoice.paymentStatus !== 'PENDING' && (items || discountFieldsChanged);
 
-  if (invoice.paymentStatus !== 'PENDING' && (items || discountFieldsChanged)) {
-    const err = new Error('Cannot modify items/discount of a paid invoice');
-    err.status = 400;
+  if (editingPaidInvoice && !canEditPaid) {
+    const err = new Error('Manager approval required to edit a paid invoice');
+    err.status = 403;
     throw err;
   }
+
+  const previousTotal = invoice.total;
+  const previousItems = invoice.items;
 
   if (items) invoice.items = items;
   if (note !== undefined) invoice.note = note;
@@ -294,6 +331,7 @@ async function updateInvoice(id, payload, user, { approved = false } = {}) {
 
   const settings = await getSettings();
   const { subtotal, tax } = computeItemTotals(invoice.items);
+  const { sgst, cgst } = splitGst(tax, settings);
   const grossTotal = round2(subtotal + tax);
 
   let discountType;
@@ -313,10 +351,18 @@ async function updateInvoice(id, payload, user, { approved = false } = {}) {
 
   validateDiscount(discount, grossTotal, settings, user, approved);
 
-  const { total, roundOff } = applyRounding(round2(grossTotal - discount), settings);
+  const { total: roundedTotal, roundOff } = applyRounding(round2(grossTotal - discount), settings);
+  // Loyalty-point redemption (POST /api/loyalty/redeem) subtracts its
+  // discount from `total` directly, after rounding, rather than folding into
+  // the `discount` field above — mirror that same order here so re-editing
+  // an invoice that had points redeemed against it doesn't silently drop
+  // that discount from the recomputed total.
+  const total = round2(roundedTotal - (invoice.loyaltyDiscount || 0));
 
   invoice.subtotal = subtotal;
   invoice.tax = tax;
+  invoice.sgst = sgst;
+  invoice.cgst = cgst;
   invoice.discount = discount;
   invoice.discountType = discountType;
   invoice.discountValue = discountValue;
@@ -324,7 +370,125 @@ async function updateInvoice(id, payload, user, { approved = false } = {}) {
   invoice.total = total;
 
   await invoice.save();
+
+  if (editingPaidInvoice) {
+    auditService.log({
+      user,
+      action: 'invoice.edited',
+      entity: 'Invoice',
+      entityId: invoice._id,
+      meta: {
+        invoiceNumber: invoice.invoiceNumber,
+        previousTotal,
+        newTotal: total,
+        previousItemCount: previousItems.length,
+        newItemCount: invoice.items.length,
+      },
+    });
+  }
+
   return invoice;
+}
+
+// Full-invoice void of a PAID invoice: marks it REFUNDED, reverses stock and
+// loyalty (earned + redeemed), and records a REFUND Payment for the audit
+// trail. The paymentStatus transition below IS the idempotency claim — every
+// side effect after it only runs once, because a concurrent/duplicate call
+// finds the invoice no longer PAID and stops here.
+async function refundInvoice(id, { method, user, req } = {}) {
+  const claimed = await Invoice.findOneAndUpdate(
+    { _id: id, paymentStatus: 'PAID' },
+    { $set: { paymentStatus: 'REFUNDED', status: 'CANCELLED' } },
+    { new: true }
+  );
+
+  if (!claimed) {
+    const existing = await Invoice.findById(id);
+    if (!existing) {
+      const err = new Error('Invoice not found');
+      err.status = 404;
+      throw err;
+    }
+    const err = new Error('Invoice is not in a refundable (PAID) state');
+    err.status = 400;
+    throw err;
+  }
+
+  if (claimed.loyaltyPoints > 0) {
+    try {
+      const loyaltyService = require('../loyalty/loyalty.service');
+      await loyaltyService.refundRedemption(claimed);
+      await claimed.save();
+    } catch (err) {
+      console.error('[billing] loyalty redemption refund on invoice refund failed:', err.message);
+    }
+  }
+
+  eventBus.publish('invoice.refunded', { invoice: claimed });
+
+  const refundPayment = await Payment.create({
+    invoiceId: claimed._id,
+    method: method || claimed.paymentMethod || 'CASH',
+    provider: method || claimed.paymentMethod || 'CASH',
+    amount: claimed.total,
+    type: 'REFUND',
+    receivedBy: { id: user.id, name: user.name },
+  });
+
+  auditService.log({
+    req,
+    user,
+    action: 'invoice.refunded',
+    entity: 'Invoice',
+    entityId: claimed._id,
+    meta: { invoiceNumber: claimed.invoiceNumber, amount: claimed.total },
+  });
+
+  return { invoice: claimed, payment: refundPayment };
+}
+
+// Records collecting an extra amount (direction:'COLLECT') or handing cash
+// back (direction:'REFUND') against an already-PAID invoice whose total
+// changed after an edit — without touching paymentStatus (it's still fully
+// PAID, just settled at a different amount than originally collected).
+async function settleDelta(id, { amount, method, direction, user, req } = {}) {
+  const invoice = await Invoice.findById(id);
+  if (!invoice) {
+    const err = new Error('Invoice not found');
+    err.status = 404;
+    throw err;
+  }
+  if (invoice.paymentStatus !== 'PAID') {
+    const err = new Error('Only a paid invoice has a balance to settle');
+    err.status = 400;
+    throw err;
+  }
+  const settleAmount = Number(amount);
+  if (!settleAmount || settleAmount <= 0) {
+    const err = new Error('amount must be a positive number');
+    err.status = 400;
+    throw err;
+  }
+
+  const payment = await Payment.create({
+    invoiceId: invoice._id,
+    method: method || 'CASH',
+    provider: method || 'CASH',
+    amount: settleAmount,
+    type: direction === 'REFUND' ? 'REFUND' : 'PAYMENT',
+    receivedBy: { id: user.id, name: user.name },
+  });
+
+  auditService.log({
+    req,
+    user,
+    action: 'invoice.settled',
+    entity: 'Invoice',
+    entityId: invoice._id,
+    meta: { invoiceNumber: invoice.invoiceNumber, amount: settleAmount, direction: direction === 'REFUND' ? 'REFUND' : 'COLLECT' },
+  });
+
+  return payment;
 }
 
 module.exports = {
@@ -334,4 +498,6 @@ module.exports = {
   listInvoices,
   getInvoice,
   updateInvoice,
+  refundInvoice,
+  settleDelta,
 };

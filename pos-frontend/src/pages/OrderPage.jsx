@@ -15,7 +15,7 @@ import { getSettings } from '../services/settingsService'
 import { useAuthStore } from '../store/authStore'
 import { useSocketEvents } from '../hooks/useSocketEvents'
 import { toast } from '../store/toastStore'
-import { formatCurrency } from '../utils/format'
+import { formatCurrency, splitTax } from '../utils/format'
 import MenuPicker from '../components/MenuPicker'
 import ItemModifierModal from '../components/ItemModifierModal'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -63,6 +63,7 @@ export default function OrderPage() {
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
   const currency = settings?.currency || 'INR'
+  const gstSplitEnabled = settings?.country === 'India'
 
   const orderQueryKey = ['orders', orderId]
 
@@ -365,10 +366,23 @@ export default function OrderPage() {
               <span>Subtotal</span>
               <span>{formatCurrency(order.subtotal, currency)}</span>
             </div>
-            <div>
-              <span>Tax</span>
-              <span>{formatCurrency(order.tax, currency)}</span>
-            </div>
+            {gstSplitEnabled ? (
+              <>
+                <div>
+                  <span>SGST</span>
+                  <span>{formatCurrency(splitTax(order.tax).sgst, currency)}</span>
+                </div>
+                <div>
+                  <span>CGST</span>
+                  <span>{formatCurrency(splitTax(order.tax).cgst, currency)}</span>
+                </div>
+              </>
+            ) : (
+              <div>
+                <span>Tax</span>
+                <span>{formatCurrency(order.tax, currency)}</span>
+              </div>
+            )}
             <div className="totals-grand">
               <span>TOTAL</span>
               <span>{formatCurrency(order.total, currency)}</span>

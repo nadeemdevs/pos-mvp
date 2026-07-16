@@ -22,6 +22,3 @@ export const resendVerification = () =>
 
 export const changePassword = ({ currentPassword, newPassword }) =>
   api.post('/auth/change-password', { currentPassword, newPassword }).then((r) => r.data)
-
-export const changeEmail = ({ newEmail, currentPassword }) =>
-  api.post('/auth/change-email', { newEmail, currentPassword }).then((r) => r.data)

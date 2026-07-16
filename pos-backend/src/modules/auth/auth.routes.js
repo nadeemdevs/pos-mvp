@@ -46,6 +46,5 @@ router.post('/reset-password', controller.resetPassword);
 router.post('/verify-email', controller.verifyEmail);
 router.post('/resend-verification', requireAuth, resendVerificationLimiter, controller.resendVerification);
 router.post('/change-password', requireAuth, controller.changePassword);
-router.post('/change-email', requireAuth, controller.changeEmail);
 
 module.exports = router;

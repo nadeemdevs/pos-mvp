@@ -113,21 +113,6 @@ const changePassword = asyncHandler(async (req, res) => {
   res.json({ message: 'Password changed' });
 });
 
-const changeEmail = asyncHandler(async (req, res) => {
-  const { newEmail, currentPassword } = req.body;
-  const user = await authService.changeEmail(req.user.id, newEmail, currentPassword);
-
-  auditService.log({
-    req,
-    action: 'auth.email_changed',
-    entity: 'User',
-    entityId: user._id,
-    meta: { newEmail: user.email },
-  });
-
-  res.json({ message: 'Email changed. A new verification email has been sent.', email: user.email });
-});
-
 module.exports = {
   login,
   register,
@@ -137,5 +122,4 @@ module.exports = {
   verifyEmail,
   resendVerification,
   changePassword,
-  changeEmail,
 };

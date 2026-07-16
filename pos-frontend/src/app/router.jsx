@@ -11,6 +11,7 @@ import ForgotPasswordPage from '../pages/ForgotPasswordPage'
 import ResetPasswordPage from '../pages/ResetPasswordPage'
 import VerifyEmailPage from '../pages/VerifyEmailPage'
 import BillingPage from '../pages/BillingPage'
+import InvoicesPage from '../pages/InvoicesPage'
 import TablesPage from '../pages/TablesPage'
 import OrderPage from '../pages/OrderPage'
 import KitchenPage from '../pages/KitchenPage'
@@ -115,6 +116,10 @@ export const router = createBrowserRouter([
           {
             element: <ProtectedRoute permission="billing.create" />,
             children: [{ path: '/billing', element: <BillingPage /> }],
+          },
+          {
+            element: <ProtectedRoute permission="billing.view" />,
+            children: [{ path: '/invoices', element: <InvoicesPage /> }],
           },
           {
             element: <ProtectedRoute anyPermission={['orders.take', 'tables.manage']} requireDineIn />,

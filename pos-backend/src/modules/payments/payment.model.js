@@ -3,6 +3,11 @@ const mongoose = require('mongoose');
 const paymentSchema = new mongoose.Schema(
   {
     invoiceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice', required: true },
+    // PAYMENT = money collected (the default, covers every payment recorded
+    // before this field existed). REFUND = money given back — created by
+    // billing.service.refundInvoice / settleDelta. Reporting aggregations
+    // must net PAYMENT minus REFUND per method/day (see reports.controller.js).
+    type: { type: String, enum: ['PAYMENT', 'REFUND'], default: 'PAYMENT' },
     method: {
       type: String,
       enum: ['CASH', 'UPI', 'CARD', 'PINELABS', 'WORLDLINE'],

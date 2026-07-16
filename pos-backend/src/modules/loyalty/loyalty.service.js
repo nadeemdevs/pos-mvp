@@ -131,6 +131,54 @@ async function processInvoicePaid(invoice) {
     await customer.save();
   }
 }
+// Mirror of processInvoicePaid, fired off 'invoice.refunded' — reverses the
+// EARN (recomputed from the same points-per-100 formula against the
+// invoice's own total, so it exactly undoes what was earned) but
+// deliberately does NOT reverse a REFERRAL bonus (that was earned by the
+// referrer for a distinct action — referring this customer — not by this
+// specific sale, so refunding the sale shouldn't claw it back). Points are
+// allowed to go negative if already spent elsewhere, matching adjustPoints'
+// existing convention (no clamp exists there either).
+async function reverseEarnedPoints(invoice) {
+  if (!invoice || !invoice._id || !invoice.customerId) return;
+
+  const claimed = await Invoice.findOneAndUpdate(
+    { _id: invoice._id, loyaltyProcessed: true, loyaltyReversed: { $ne: true } },
+    { $set: { loyaltyReversed: true } },
+    { new: true }
+  );
+  if (!claimed) return; // never earned, or already reversed — no-op
+
+  const settings = await getSettings();
+  const loyaltyCfg = settings.loyalty || {};
+  const pointsPer100 = loyaltyCfg.pointsPer100 !== undefined ? loyaltyCfg.pointsPer100 : 5;
+  const points = Math.floor(((claimed.total || 0) / 100) * pointsPer100);
+  if (points <= 0) return;
+
+  const customer = await Customer.findById(claimed.customerId);
+  if (!customer) return;
+
+  customer.loyalty.points -= points;
+  customer.loyalty.lifetimePoints -= points;
+  customer.loyalty.tier = computeTier(customer.loyalty.lifetimePoints, loyaltyCfg.tiers);
+  await customer.save();
+
+  await recordTransaction({
+    customer,
+    type: 'ADJUST',
+    points: -points,
+    refType: 'INVOICE',
+    refId: claimed._id,
+    note: `Reversed on refund of invoice ${claimed.invoiceNumber}`,
+  });
+
+  auditService.log({
+    action: 'loyalty.reversed',
+    entity: 'Customer',
+    entityId: customer._id,
+    meta: { points: -points, invoiceId: claimed._id, invoiceNumber: claimed.invoiceNumber },
+  });
+}
 
 async function redeemPoints({ invoiceId, points }, user) {
   const pointsNum = Number(points);
@@ -309,6 +357,7 @@ async function refundRedemption(invoice) {
 module.exports = {
   computeTier,
   processInvoicePaid,
+  reverseEarnedPoints,
   redeemPoints,
   adjustPoints,
   getSummary,

@@ -37,8 +37,16 @@ const daily = asyncHandler(async (req, res) => {
   let discount = 0;
   let net = 0;
   let cancelled = 0;
+  let refunded = 0;
 
   for (const inv of invoices) {
+    // Check REFUNDED first — a refunded invoice also carries status
+    // CANCELLED (see billing.service.refundInvoice), so it would otherwise
+    // double-land in the generic cancelled bucket below.
+    if (inv.paymentStatus === 'REFUNDED') {
+      refunded += 1;
+      continue;
+    }
     if (inv.status === 'CANCELLED') {
       cancelled += 1;
       continue;
@@ -52,7 +60,21 @@ const daily = asyncHandler(async (req, res) => {
 
   const byPaymentMethod = await Payment.aggregate([
     { $match: { createdAt: { $gte: start, $lte: end }, status: 'SUCCESS' } },
-    { $group: { _id: '$method', count: { $sum: 1 }, amount: { $sum: '$amount' } } },
+    {
+      $group: {
+        _id: '$method',
+        count: { $sum: 1 },
+        // Net PAYMENT minus REFUND per method. Old Payment docs predate the
+        // `type` field entirely (not just default-valued — absent in Mongo),
+        // so $ifNull treats them as ordinary payments rather than dropping
+        // out of the netting.
+        amount: {
+          $sum: {
+            $cond: [{ $eq: [{ $ifNull: ['$type', 'PAYMENT'] }, 'REFUND'] }, { $multiply: ['$amount', -1] }, '$amount'],
+          },
+        },
+      },
+    },
     { $project: { _id: 0, method: '$_id', count: 1, amount: 1 } },
   ]);
 
@@ -64,6 +86,7 @@ const daily = asyncHandler(async (req, res) => {
     discount: round2(discount),
     net: round2(net),
     cancelled,
+    refunded,
     byPaymentMethod,
   });
 });
@@ -102,8 +125,21 @@ const payments = asyncHandler(async (req, res) => {
   const { start, end, date } = dayRange(req.query.date);
 
   const result = await Payment.aggregate([
-    { $match: { createdAt: { $gte: start, $lte: end } } },
-    { $group: { _id: '$method', count: { $sum: 1 }, amount: { $sum: '$amount' } } },
+    // Drive-by fix: this action had no status filter at all, unlike daily's
+    // inline version — INITIATED/FAILED/PROCESSING card attempts were
+    // inflating it.
+    { $match: { createdAt: { $gte: start, $lte: end }, status: 'SUCCESS' } },
+    {
+      $group: {
+        _id: '$method',
+        count: { $sum: 1 },
+        amount: {
+          $sum: {
+            $cond: [{ $eq: [{ $ifNull: ['$type', 'PAYMENT'] }, 'REFUND'] }, { $multiply: ['$amount', -1] }, '$amount'],
+          },
+        },
+      },
+    },
     { $project: { _id: 0, method: '$_id', count: 1, amount: 1 } },
   ]);
 
@@ -146,7 +182,10 @@ const discounts = asyncHandler(async (req, res) => {
 
 const cancelled = asyncHandler(async (req, res) => {
   const { from, to } = req.query;
-  const match = { ...dateMatch(from, to), status: 'CANCELLED' };
+  // A refunded invoice also carries status:'CANCELLED' (see
+  // billing.service.refundInvoice) — exclude it here so it shows up once, in
+  // the refunded bucket (daily report), not counted again as a plain cancel.
+  const match = { ...dateMatch(from, to), status: 'CANCELLED', paymentStatus: { $ne: 'REFUNDED' } };
 
   const invoiceDocs = await Invoice.find(match).sort({ createdAt: -1 });
 

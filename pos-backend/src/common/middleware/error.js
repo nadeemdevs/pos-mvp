@@ -6,7 +6,10 @@ function errorHandler(err, req, res, next) {
   let status = err.status || err.statusCode || 500;
   let message = err.message || 'Internal server error';
 
-  if (err.name === 'ValidationError') {
+  if (err.name === 'MulterError') {
+    status = 400;
+    message = err.message;
+  } else if (err.name === 'ValidationError') {
     status = 400;
     message = Object.values(err.errors)
       .map((e) => e.message)

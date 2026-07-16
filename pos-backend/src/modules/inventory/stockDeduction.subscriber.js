@@ -39,6 +39,36 @@ async function deductForItems(items, { refType, refId, note }) {
   }
 }
 
+// Mirror of deductForItems, run when a refund gives stock back — same recipe
+// lookup, but the positive of the original quantity, tagged as a RETURN
+// (the closest existing StockTransaction type to "reversed consumption").
+async function reverseForItems(items, { refType, refId, note }) {
+  for (const item of items) {
+    if (!item.menuItemId) continue;
+
+    // eslint-disable-next-line no-await-in-loop
+    const menuItem = await MenuItem.findById(item.menuItemId);
+    if (!menuItem || !menuItem.recipe || !menuItem.recipe.length) continue;
+
+    for (const line of menuItem.recipe) {
+      const qty = line.qty * item.qty;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await inventoryService.applyStockChange({
+          itemId: line.inventoryItemId,
+          type: 'RETURN',
+          qty,
+          refType,
+          refId,
+          note,
+        });
+      } catch (err) {
+        console.error(`[stock] reversal failed for menuItem ${menuItem._id} (${refType} ${refId}):`, err.message);
+      }
+    }
+  }
+}
+
 async function handleOrderCompleted({ order } = {}) {
   if (!order || !order._id) return;
 
@@ -84,9 +114,35 @@ async function handleInvoicePaid({ invoice } = {}) {
   }
 }
 
+// Counter sales only (mirrors handleInvoicePaid's orderId guard) — dine-in
+// invoices never had their stock deducted via the Invoice path to begin
+// with (see handleInvoicePaid above), so there's nothing to reverse here for
+// them; a refunded dine-in invoice's stock is a known v1 limitation.
+async function handleInvoiceRefunded({ invoice } = {}) {
+  if (!invoice || !invoice._id || invoice.orderId || !invoice.stockDeducted) return;
+
+  try {
+    const claimed = await Invoice.findOneAndUpdate(
+      { _id: invoice._id, stockReversed: { $ne: true } },
+      { $set: { stockReversed: true } },
+      { new: true }
+    );
+    if (!claimed) return; // already reversed — no-op
+
+    await reverseForItems(claimed.items, {
+      refType: 'INVOICE',
+      refId: claimed._id,
+      note: `Refund reversal for invoice ${claimed.invoiceNumber}`,
+    });
+  } catch (err) {
+    console.error('[stock] invoice.refunded handler failed:', err.message);
+  }
+}
+
 function register() {
   subscribe('order.completed', handleOrderCompleted);
   subscribe('invoice.paid', handleInvoicePaid);
+  subscribe('invoice.refunded', handleInvoiceRefunded);
 }
 
 module.exports = { register };

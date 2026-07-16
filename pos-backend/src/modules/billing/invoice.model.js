@@ -17,6 +17,12 @@ const invoiceSchema = new mongoose.Schema(
     items: { type: [invoiceItemSchema], default: [] },
     subtotal: { type: Number, required: true, default: 0 },
     tax: { type: Number, required: true, default: 0 },
+    // Populated only when settings.country was 'India' at the time this
+    // invoice's tax was (re)computed — sgst+cgst always equals `tax` above.
+    // Zero on invoices from non-Indian stores, so old invoices keep showing
+    // a single "Tax" line even if the setting is toggled on later.
+    sgst: { type: Number, default: 0 },
+    cgst: { type: Number, default: 0 },
     discount: { type: Number, required: true, default: 0 },
     discountType: { type: String, enum: ['FLAT', 'PERCENT'], default: 'FLAT' },
     discountValue: { type: Number, default: 0, min: 0 },
@@ -60,6 +66,11 @@ const invoiceSchema = new mongoose.Schema(
     // the resulting discount amount already folded into `total` above.
     loyaltyPoints: { type: Number, default: 0 },
     loyaltyDiscount: { type: Number, default: 0 },
+    // Idempotency guards for reversing stockDeducted/loyaltyProcessed on
+    // refund — same atomic-claim pattern, set once by
+    // stockDeduction.subscriber.handleInvoiceRefunded / loyalty.service.reverseEarnedPoints.
+    stockReversed: { type: Boolean, default: false },
+    loyaltyReversed: { type: Boolean, default: false },
   },
   { timestamps: true, branchScoped: true }
 );

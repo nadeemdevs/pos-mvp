@@ -160,10 +160,19 @@ const approvalsSettingsSchema = new mongoose.Schema(
 const settingSchema = new mongoose.Schema(
   {
     restaurantName: { type: String, default: 'My Restaurant' },
+    // Cloudinary secure_url for the restaurant's uploaded logo/icon. Falls
+    // back to a two-letter initials avatar on the frontend when empty.
+    logoUrl: { type: String, default: '' },
     address: { type: String, default: '' },
     phone: { type: String, default: '' },
+    email: { type: String, default: '' },
+    website: { type: String, default: '' },
     taxRate: { type: Number, default: 5 },
     currency: { type: String, default: 'INR' },
+    // Drives the SGST/CGST split on invoices (see billing.service.js
+    // splitGst) — GST-registered Indian businesses must show tax as two
+    // equal halves rather than one lump "Tax" line.
+    country: { type: String, default: 'India' },
     receiptFooter: { type: String, default: 'Thank you for visiting!' },
     paymentProviders: { type: paymentProvidersSchema, default: () => ({}) },
     discounts: { type: discountsSchema, default: () => ({}) },

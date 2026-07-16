@@ -336,52 +336,6 @@ async function changePassword(userId, currentPassword, newPassword) {
   return user;
 }
 
-// POST /api/auth/change-email {newEmail, currentPassword} — AUTHENTICATED.
-async function changeEmail(userId, newEmail, currentPassword) {
-  const badRequest = (message) => {
-    const err = new Error(message);
-    err.status = 400;
-    return err;
-  };
-
-  const normalizedEmail = String(newEmail || '').toLowerCase().trim();
-  if (!normalizedEmail || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
-    throw badRequest('A valid newEmail is required');
-  }
-
-  const user = await User.findById(userId);
-  if (!user) {
-    const err = new Error('User not found');
-    err.status = 404;
-    throw err;
-  }
-
-  const match = await bcrypt.compare(String(currentPassword || ''), user.passwordHash);
-  if (!match) {
-    const err = new Error('Current password is incorrect');
-    err.status = 401;
-    throw err;
-  }
-
-  // Email is unique GLOBALLY across all tenants — same rule as register/login.
-  const existing = await User.findOne({ email: normalizedEmail, _id: { $ne: user._id } }).setOptions({
-    skipTenantScope: true,
-  });
-  if (existing) {
-    const err = new Error('An account with this email already exists');
-    err.status = 409;
-    throw err;
-  }
-
-  user.email = normalizedEmail;
-  user.emailVerified = false;
-  await user.save();
-
-  sendVerificationEmailBestEffort(user);
-
-  return user;
-}
-
 module.exports = {
   login,
   register,
@@ -391,5 +345,4 @@ module.exports = {
   verifyEmail,
   resendVerification,
   changePassword,
-  changeEmail,
 };
