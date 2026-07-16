@@ -257,7 +257,7 @@ export default function AppLayout() {
           title={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {navCollapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
-          {!navCollapsed && <span>Collapse</span>}
+          <span className="sidebar-nav-toggle-label">Collapse</span>
         </button>
         <nav className="sidebar-nav">
           {visibleLinks.map((link) => {
@@ -273,7 +273,7 @@ export default function AppLayout() {
                 }
               >
                 {Icon && <Icon size={18} className="sidebar-link-icon" />}
-                {!navCollapsed && <span className="sidebar-link-label">{link.label}</span>}
+                <span className="sidebar-link-label">{link.label}</span>
               </NavLink>
             )
           })}

@@ -95,10 +95,6 @@ button, input, select, textarea {
   text-overflow: ellipsis;
 }
 
-.sidebar-collapsed .sidebar-brand {
-  padding: 0 0 20px;
-  text-align: center;
-}
 
 .sidebar-nav-toggle {
   display: flex;
@@ -120,10 +116,25 @@ button, input, select, textarea {
   color: var(--sidebar-text-active);
 }
 
+.sidebar-nav-toggle > svg {
+  flex-shrink: 0;
+}
+
 .sidebar-collapsed .sidebar-nav-toggle {
   justify-content: center;
-  margin: 0 8px 12px;
-  padding: 8px;
+}
+
+.sidebar-nav-toggle-label {
+  opacity: 1;
+  max-width: 160px;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: opacity 0.15s, max-width 0.15s;
+}
+
+.sidebar-collapsed .sidebar-nav-toggle-label {
+  opacity: 0;
+  max-width: 0;
 }
 
 .sidebar-nav {
@@ -148,11 +159,6 @@ button, input, select, textarea {
   transition: background 0.15s, color 0.15s;
 }
 
-.sidebar-collapsed .sidebar-link {
-  justify-content: center;
-  padding: 10px 0;
-}
-
 .sidebar-link-icon {
   flex-shrink: 0;
 }
@@ -160,6 +166,15 @@ button, input, select, textarea {
 .sidebar-link-label {
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 18px;
+  opacity: 1;
+  max-width: 160px;
+  transition: opacity 0.15s, max-width 0.15s;
+}
+
+.sidebar-collapsed .sidebar-link-label {
+  opacity: 0;
+  max-width: 0;
 }
 
 .sidebar-link:hover {
