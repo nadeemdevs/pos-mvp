@@ -1617,8 +1617,121 @@ button, input, select, textarea {
 
 .billing-page {
   display: flex;
-  gap: 20px;
+  flex-direction: column;
+  gap: 12px;
   height: calc(100svh - 60px - 48px);
+}
+
+.billing-body {
+  display: flex;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------- Billing tabs (browser-style order tabs) ---------- */
+
+.billing-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.billing-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 200px;
+  flex-shrink: 0;
+  user-select: none;
+  color: var(--text-muted, inherit);
+}
+
+.billing-tab.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.billing-tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  flex-shrink: 0;
+}
+
+.billing-tab-dot.pending {
+  background: #f59e0b;
+}
+
+.billing-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+.billing-tab-rename {
+  width: 110px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.billing-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+  padding: 0;
+}
+
+.billing-tab-close:hover {
+  opacity: 1;
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.billing-tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.billing-tab-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .billing-left {

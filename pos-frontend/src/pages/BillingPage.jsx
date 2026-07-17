@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ChevronDown, ChevronUp, Palette, Percent, StickyNote, User } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -7,7 +7,7 @@ import { takePayment } from '../services/paymentService'
 import { getSettings } from '../services/settingsService'
 import { getCurrentShift } from '../services/shiftService'
 import { setApprovalToken } from '../services/api'
-import { useCartStore } from '../store/cartStore'
+import { useCartStore, selectActiveCart } from '../store/cartStore'
 import { useBranchStore } from '../store/branchStore'
 import { toast } from '../store/toastStore'
 import { computeRoundOff, formatCurrency, splitTax } from '../utils/format'
@@ -17,6 +17,7 @@ import SplitBillModal from '../components/SplitBillModal'
 import PaymentModal from '../components/PaymentModal'
 import Receipt from '../components/Receipt'
 import MenuPicker from '../components/MenuPicker'
+import BillingTabs from '../components/BillingTabs'
 import EmptyState from '../components/EmptyState'
 import CustomerLookup from '../components/CustomerLookup'
 import ApprovalPinModal from '../components/ApprovalPinModal'
@@ -100,6 +101,7 @@ export default function BillingPage() {
   const [paymentResult, setPaymentResult] = useState(null)
   const [approvalModalOpen, setApprovalModalOpen] = useState(false)
   const [approvalAction, setApprovalAction] = useState(null) // 'charge' | 'saveEdit'
+  const chargedTabIdRef = useRef(null)
   // Pastel menu-card tints — a per-device cashier preference, on by default.
   const [menuColors, setMenuColors] = useState(
     () => localStorage.getItem(MENU_COLORS_KEY) !== '0'
@@ -126,14 +128,14 @@ export default function BillingPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
 
   const cart = useCartStore()
-  const items = useCartStore((s) => s.items)
-  const discountType = useCartStore((s) => s.discountType)
-  const discountValue = useCartStore((s) => s.discountValue)
-  const customer = useCartStore((s) => s.customer)
-  const note = useCartStore((s) => s.note)
-  const heldInvoiceId = useCartStore((s) => s.heldInvoiceId)
-  const loadedPaymentStatus = useCartStore((s) => s.loadedPaymentStatus)
-  const loadedInvoiceNumber = useCartStore((s) => s.loadedInvoiceNumber)
+  const items = useCartStore((s) => selectActiveCart(s).items)
+  const discountType = useCartStore((s) => selectActiveCart(s).discountType)
+  const discountValue = useCartStore((s) => selectActiveCart(s).discountValue)
+  const customer = useCartStore((s) => selectActiveCart(s).customer)
+  const note = useCartStore((s) => selectActiveCart(s).note)
+  const heldInvoiceId = useCartStore((s) => selectActiveCart(s).heldInvoiceId)
+  const loadedPaymentStatus = useCartStore((s) => selectActiveCart(s).loadedPaymentStatus)
+  const loadedInvoiceNumber = useCartStore((s) => selectActiveCart(s).loadedInvoiceNumber)
   const isEditingPaid = loadedPaymentStatus === 'PAID'
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
@@ -222,6 +224,10 @@ export default function BillingPage() {
         : createInvoice(payload)
     },
     onSuccess: (invoice) => {
+      // Remember which tab this invoice came from — the cashier may switch
+      // tabs (Alt+1..9) before finishing payment, and New Sale must clear the
+      // charged tab, not whichever one is active by then.
+      chargedTabIdRef.current = useCartStore.getState().activeTabId
       setActiveInvoice(invoice)
       setPaymentModalOpen(true)
       invalidateInvoices()
@@ -292,13 +298,17 @@ export default function BillingPage() {
   }
 
   const handleResume = (invoice) => {
+    // Resume into the current tab only if it's idle; otherwise open the held
+    // bill in a fresh tab so the in-progress order isn't overwritten.
+    if (items.length > 0) cart.newTab()
     cart.loadInvoice(invoice)
     setHeldModalOpen(false)
     toast('Held bill resumed', 'success')
   }
 
   const handleNewSale = () => {
-    cart.clear()
+    cart.clear(chargedTabIdRef.current)
+    chargedTabIdRef.current = null
     setActiveInvoice(null)
     setPaymentResult(null)
   }
@@ -340,6 +350,8 @@ export default function BillingPage() {
 
   return (
     <div className="billing-page">
+      <BillingTabs />
+      <div className="billing-body">
       <div className="billing-left">
         <MenuPicker
           currency={currency}
@@ -576,6 +588,7 @@ export default function BillingPage() {
             )}
           </div>
         </div>
+      </div>
       </div>
 
       <HeldBillsModal
