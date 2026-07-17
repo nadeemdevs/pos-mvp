@@ -18,10 +18,19 @@ export default function BillingTabs() {
   const [renamingId, setRenamingId] = useState(null)
   const [draftName, setDraftName] = useState('')
   const renameInputRef = useRef(null)
+  const scrollRef = useRef(null)
 
   useEffect(() => {
     if (renamingId) renameInputRef.current?.select()
   }, [renamingId])
+
+  // Keep the active tab visible — a newly created tab lands at the far right
+  // of an overflowing strip, and Alt+1..9 can jump to an off-screen tab.
+  useEffect(() => {
+    scrollRef.current
+      ?.querySelector('.billing-tab.active')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [activeTabId, tabs.length])
 
   // Empty tabs close silently; a tab with items gets a confirm dialog so a
   // misclick can't silently throw away an order.
@@ -70,6 +79,7 @@ export default function BillingTabs() {
 
   return (
     <div className="billing-tabs" role="tablist">
+      <div className="billing-tabs-scroll" ref={scrollRef}>
       {tabs.map((tab) => {
         const pending = tab.cart.items.length > 0
         return (
@@ -115,6 +125,7 @@ export default function BillingTabs() {
           </div>
         )
       })}
+      </div>
 
       <button
         className="billing-tab-add"
