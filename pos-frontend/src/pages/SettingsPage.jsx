@@ -6,6 +6,7 @@ import {
   Gift,
   Printer,
   QrCode,
+  ReceiptText,
   SlidersHorizontal,
   Store,
 } from 'lucide-react'
@@ -21,6 +22,7 @@ import { toast } from '../store/toastStore'
 import Spinner from '../components/Spinner'
 import Modal from '../components/Modal'
 import EmptyState from '../components/EmptyState'
+import InvoiceTemplateDesigner from '../components/InvoiceTemplateDesigner'
 
 // Maps each nav entry to its icon and label. All of these live inside the
 // single shared <form> — they're rendered/hidden by conditionally showing
@@ -36,6 +38,7 @@ const SETTINGS_SECTIONS = [
   { key: 'online', label: 'Online & Delivery', icon: QrCode },
   { key: 'loyalty', label: 'Loyalty', icon: Gift },
   { key: 'printing', label: 'Printing', icon: Printer },
+  { key: 'invoiceTemplate', label: 'Invoice Template', icon: ReceiptText },
   { key: 'branches', label: 'Branches', icon: Building2, permission: 'branches.manage' },
 ]
 
@@ -511,20 +514,6 @@ export default function SettingsPage() {
               </label>
             </div>
           </div>
-
-          <div className="settings-section-panel">
-            <div className="settings-section-header">
-              <h3>Receipt</h3>
-            </div>
-            <label className="field">
-              <span>Receipt Footer</span>
-              <textarea
-                rows={3}
-                value={form.receiptFooter}
-                onChange={(e) => setForm({ ...form, receiptFooter: e.target.value })}
-              />
-            </label>
-          </div>
         </div>
         )}
 
@@ -994,6 +983,8 @@ export default function SettingsPage() {
       )}
 
       {activeSection === 'general' && <AccountCard />}
+
+      {activeSection === 'invoiceTemplate' && <InvoiceTemplateDesigner />}
 
       {activeSection === 'branches' && <BranchesCard />}
         </div>

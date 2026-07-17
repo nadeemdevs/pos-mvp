@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { ChevronDown, ChevronUp, Palette, Percent, StickyNote, User } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createInvoice, updateInvoice } from '../services/invoiceService'
 import { takePayment } from '../services/paymentService'
@@ -7,7 +8,7 @@ import { getSettings } from '../services/settingsService'
 import { getBranches } from '../services/branchService'
 import { getCurrentShift } from '../services/shiftService'
 import { setApprovalToken } from '../services/api'
-import { useCartStore } from '../store/cartStore'
+import { useCartStore, selectActiveCart } from '../store/cartStore'
 import { useBranchStore } from '../store/branchStore'
 import { toast } from '../store/toastStore'
 import { computeRoundOff, formatCurrency, splitTax } from '../utils/format'
@@ -17,11 +18,14 @@ import SplitBillModal from '../components/SplitBillModal'
 import PaymentModal from '../components/PaymentModal'
 import Receipt from '../components/Receipt'
 import MenuPicker from '../components/MenuPicker'
+import BillingTabs from '../components/BillingTabs'
 import EmptyState from '../components/EmptyState'
 import CustomerLookup from '../components/CustomerLookup'
 import ApprovalPinModal from '../components/ApprovalPinModal'
 import BranchRequiredNotice from '../components/BranchRequiredNotice'
 import { useAuthStore } from '../store/authStore'
+
+const MENU_COLORS_KEY = 'billingMenuColors'
 
 function DiscountEditor({ discountType, discountValue, presets, maxPercent, onSetType, onSetValue, onApplyPreset }) {
   const displayType = discountType || 'FLAT'
@@ -99,18 +103,41 @@ export default function BillingPage() {
   const [printInvoice, setPrintInvoice] = useState(null)
   const [approvalModalOpen, setApprovalModalOpen] = useState(false)
   const [approvalAction, setApprovalAction] = useState(null) // 'charge' | 'saveEdit'
+  const chargedTabIdRef = useRef(null)
+  // Pastel menu-card tints — a per-device cashier preference, on by default.
+  const [menuColors, setMenuColors] = useState(
+    () => localStorage.getItem(MENU_COLORS_KEY) !== '0'
+  )
+  // The cart list is the cashier's main focus — discount/customer/note are
+  // secondary, opened one at a time from a compact chip row, and the tax
+  // breakdown is collapsed behind the TOTAL row. Keeps the footer short so
+  // the item list gets the vertical space.
+  const [openPanel, setOpenPanel] = useState(null) // 'discount' | 'customer' | 'note' | null
+  const [totalsExpanded, setTotalsExpanded] = useState(false)
+  const togglePanel = (panel) => setOpenPanel((cur) => (cur === panel ? null : panel))
+
+  const toggleMenuColors = () => {
+    setMenuColors((on) => {
+      try {
+        localStorage.setItem(MENU_COLORS_KEY, on ? '0' : '1')
+      } catch {
+        // localStorage may be unavailable (private mode); non-fatal.
+      }
+      return !on
+    })
+  }
 
   const hasPermission = useAuthStore((s) => s.hasPermission)
 
   const cart = useCartStore()
-  const items = useCartStore((s) => s.items)
-  const discountType = useCartStore((s) => s.discountType)
-  const discountValue = useCartStore((s) => s.discountValue)
-  const customer = useCartStore((s) => s.customer)
-  const note = useCartStore((s) => s.note)
-  const heldInvoiceId = useCartStore((s) => s.heldInvoiceId)
-  const loadedPaymentStatus = useCartStore((s) => s.loadedPaymentStatus)
-  const loadedInvoiceNumber = useCartStore((s) => s.loadedInvoiceNumber)
+  const items = useCartStore((s) => selectActiveCart(s).items)
+  const discountType = useCartStore((s) => selectActiveCart(s).discountType)
+  const discountValue = useCartStore((s) => selectActiveCart(s).discountValue)
+  const customer = useCartStore((s) => selectActiveCart(s).customer)
+  const note = useCartStore((s) => selectActiveCart(s).note)
+  const heldInvoiceId = useCartStore((s) => selectActiveCart(s).heldInvoiceId)
+  const loadedPaymentStatus = useCartStore((s) => selectActiveCart(s).loadedPaymentStatus)
+  const loadedInvoiceNumber = useCartStore((s) => selectActiveCart(s).loadedInvoiceNumber)
   const isEditingPaid = loadedPaymentStatus === 'PAID'
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
@@ -213,6 +240,10 @@ export default function BillingPage() {
         : createInvoice(payload)
     },
     onSuccess: (invoice) => {
+      // Remember which tab this invoice came from — the cashier may switch
+      // tabs (Alt+1..9) before finishing payment, and New Sale must clear the
+      // charged tab, not whichever one is active by then.
+      chargedTabIdRef.current = useCartStore.getState().activeTabId
       setActiveInvoice(invoice)
       invalidateInvoices()
       if (isTableService) {
@@ -308,13 +339,17 @@ export default function BillingPage() {
   }
 
   const handleResume = (invoice) => {
+    // Resume into the current tab only if it's idle; otherwise open the held
+    // bill in a fresh tab so the in-progress order isn't overwritten.
+    if (items.length > 0) cart.newTab()
     cart.loadInvoice(invoice)
     setHeldModalOpen(false)
     toast('Held bill resumed', 'success')
   }
 
   const handleNewSale = () => {
-    cart.clear()
+    cart.clear(chargedTabIdRef.current)
+    chargedTabIdRef.current = null
     setActiveInvoice(null)
     setPaymentResult(null)
     setPrintInvoice(null)
@@ -362,9 +397,13 @@ export default function BillingPage() {
           <Receipt invoice={printInvoice} settings={settings} />
         </div>
       )}
+      <BillingTabs />
+      <div className="billing-body">
       <div className="billing-left">
         <MenuPicker
           currency={currency}
+          colorful={menuColors}
+          inCartIds={items.map((i) => i.menuItemId)}
           onItemClick={(item) =>
             cart.add({
               menuItemId: item._id || item.id,
@@ -396,6 +435,13 @@ export default function BillingPage() {
         <div className="cart-header">
           <h2>Current Bill</h2>
           <div className="cart-header-actions">
+            <button
+              className={`btn btn-ghost btn-sm menu-colors-toggle${menuColors ? ' active' : ''}`}
+              title={menuColors ? 'Disable menu colors' : 'Enable menu colors'}
+              onClick={toggleMenuColors}
+            >
+              <Palette size={16} />
+            </button>
             {dineInEnabled && (
               <button className="btn btn-ghost btn-sm" onClick={() => setDineInModalOpen(true)}>
                 Dine-in Bills
@@ -442,75 +488,123 @@ export default function BillingPage() {
         </div>
 
         <div className="cart-footer">
-          <DiscountEditor
-            discountType={discountType}
-            discountValue={discountValue}
-            presets={presets}
-            maxPercent={maxPercent}
-            onSetType={handleSetDiscountType}
-            onSetValue={handleSetDiscountValue}
-            onApplyPreset={handleApplyPreset}
-          />
-
-          <CustomerLookup
-            customer={customer}
-            onFieldChange={cart.setCustomer}
-            onSelect={cart.setCustomer}
-            onClear={() => cart.setCustomer({ name: '', phone: '' })}
-          />
-
-          <div className="totals-block">
-            <div>
-              <span>Subtotal</span>
-              <span>{formatCurrency(subtotal, currency)}</span>
-            </div>
-            {gstSplitEnabled ? (
-              <>
-                <div>
-                  <span>SGST</span>
-                  <span>{formatCurrency(sgst, currency)}</span>
-                </div>
-                <div>
-                  <span>CGST</span>
-                  <span>{formatCurrency(cgst, currency)}</span>
-                </div>
-              </>
-            ) : (
-              <div>
-                <span>Tax</span>
-                <span>{formatCurrency(tax, currency)}</span>
-              </div>
-            )}
-            <div>
-              <span>
-                Discount
-                {discountType === 'PERCENT' && discountValue ? ` (${discountValue}%)` : ''}
-              </span>
-              <span>-{formatCurrency(discountAmount, currency)}</span>
-            </div>
-            {roundOff !== 0 && (
-              <div>
-                <span>Round off</span>
-                <span>
-                  {roundOff > 0 ? '+' : ''}
-                  {formatCurrency(roundOff, currency)}
-                </span>
-              </div>
-            )}
-            <div className="totals-grand">
-              <span>TOTAL</span>
-              <span>{formatCurrency(displayTotal, currency)}</span>
-            </div>
+          <div className="cart-addon-chips">
+            <button
+              type="button"
+              className={`chip cart-addon-chip ${openPanel === 'discount' || discountAmount > 0 ? 'active' : ''}`}
+              onClick={() => togglePanel('discount')}
+            >
+              <Percent size={13} />
+              {discountAmount > 0
+                ? `-${formatCurrency(discountAmount, currency)}`
+                : 'Discount'}
+            </button>
+            <button
+              type="button"
+              className={`chip cart-addon-chip ${openPanel === 'customer' || customer?.name || customer?.phone ? 'active' : ''}`}
+              onClick={() => togglePanel('customer')}
+            >
+              <User size={13} />
+              {customer?.name || customer?.phone || 'Customer'}
+            </button>
+            <button
+              type="button"
+              className={`chip cart-addon-chip ${openPanel === 'note' || note ? 'active' : ''}`}
+              onClick={() => togglePanel('note')}
+            >
+              <StickyNote size={13} />
+              {note ? 'Note ✓' : 'Note'}
+            </button>
           </div>
 
-          <label className="field hold-note-field">
-            <span>Note (optional)</span>
-            <input
-              placeholder="e.g. Table 4 uncle"
-              value={note}
-              onChange={(e) => cart.setNote(e.target.value)}
+          {openPanel === 'discount' && (
+            <DiscountEditor
+              discountType={discountType}
+              discountValue={discountValue}
+              presets={presets}
+              maxPercent={maxPercent}
+              onSetType={handleSetDiscountType}
+              onSetValue={handleSetDiscountValue}
+              onApplyPreset={handleApplyPreset}
             />
-          </label>
+          )}
+
+          {openPanel === 'customer' && (
+            <CustomerLookup
+              customer={customer}
+              onFieldChange={cart.setCustomer}
+              onSelect={cart.setCustomer}
+              onClear={() => cart.setCustomer({ name: '', phone: '' })}
+            />
+          )}
+
+          {openPanel === 'note' && (
+            <label className="field hold-note-field">
+              <span>Note (optional)</span>
+              <input
+                autoFocus
+                placeholder="e.g. Table 4 uncle"
+                value={note}
+                onChange={(e) => cart.setNote(e.target.value)}
+              />
+            </label>
+          )}
+
+          <div className="totals-block">
+            {totalsExpanded && (
+              <>
+                <div>
+                  <span>Subtotal</span>
+                  <span>{formatCurrency(subtotal, currency)}</span>
+                </div>
+                {gstSplitEnabled ? (
+                  <>
+                    <div>
+                      <span>SGST</span>
+                      <span>{formatCurrency(sgst, currency)}</span>
+                    </div>
+                    <div>
+                      <span>CGST</span>
+                      <span>{formatCurrency(cgst, currency)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <span>Tax</span>
+                    <span>{formatCurrency(tax, currency)}</span>
+                  </div>
+                )}
+                <div>
+                  <span>
+                    Discount
+                    {discountType === 'PERCENT' && discountValue ? ` (${discountValue}%)` : ''}
+                  </span>
+                  <span>-{formatCurrency(discountAmount, currency)}</span>
+                </div>
+                {roundOff !== 0 && (
+                  <div>
+                    <span>Round off</span>
+                    <span>
+                      {roundOff > 0 ? '+' : ''}
+                      {formatCurrency(roundOff, currency)}
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+            <button
+              type="button"
+              className="totals-grand totals-grand-toggle"
+              onClick={() => setTotalsExpanded((e) => !e)}
+              title={totalsExpanded ? 'Hide breakdown' : 'Show breakdown'}
+            >
+              <span>
+                TOTAL
+                {totalsExpanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+              </span>
+              <span>{formatCurrency(displayTotal, currency)}</span>
+            </button>
+          </div>
 
           <div className="cart-actions">
             {isEditingPaid ? (
@@ -561,6 +655,7 @@ export default function BillingPage() {
             )}
           </div>
         </div>
+      </div>
       </div>
 
       <HeldBillsModal

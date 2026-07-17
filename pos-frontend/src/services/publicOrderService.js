@@ -1,6 +1,9 @@
 import publicApi from './publicApi'
 
-export const getPublicMenu = () => publicApi.get('/public/menu').then((r) => r.data)
+// The token scopes the request to the right tenant/branch — /public/menu
+// responds 400 without it (see backend public.routes.js tableContext).
+export const getPublicMenu = (qrToken) =>
+  publicApi.get('/public/menu', { params: { token: qrToken } }).then((r) => r.data)
 
 export const getPublicTable = (qrToken) =>
   publicApi.get(`/public/table/${qrToken}`).then((r) => r.data)

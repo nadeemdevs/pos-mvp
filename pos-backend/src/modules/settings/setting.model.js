@@ -148,6 +148,59 @@ const branchAccessSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Invoice template builder — controls what the printed thermal receipt shows.
+// Paper widths follow the two industry-standard thermal roll sizes: 58mm
+// (~32 chars/line) and 80mm (~48 chars/line). Rendering is done entirely by
+// the frontend Receipt component; this is pure layout config.
+const receiptColumnSchema = new mongoose.Schema(
+  {
+    key: { type: String, enum: ['item', 'qty', 'price', 'total'], required: true },
+    label: { type: String, default: '' },
+    visible: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
+const receiptTemplateSchema = new mongoose.Schema(
+  {
+    paperWidth: { type: Number, enum: [58, 80], default: 80 },
+    header: {
+      showRestaurantName: { type: Boolean, default: true },
+      showAddress: { type: Boolean, default: true },
+      showPhone: { type: Boolean, default: true },
+      showEmail: { type: Boolean, default: false },
+      showWebsite: { type: Boolean, default: false },
+      showBranch: { type: Boolean, default: false },
+      showGst: { type: Boolean, default: false },
+      gstNumber: { type: String, default: '' },
+      // Free-form extra line under the contact block (e.g. FSSAI number).
+      customText: { type: String, default: '' },
+    },
+    columns: {
+      type: [receiptColumnSchema],
+      default: () => [
+        { key: 'item', label: 'Item', visible: true },
+        { key: 'qty', label: 'Qty', visible: true },
+        { key: 'price', label: 'Price', visible: true },
+        { key: 'total', label: 'Total', visible: true },
+      ],
+    },
+    totals: {
+      showSubtotal: { type: Boolean, default: true },
+      showTax: { type: Boolean, default: true },
+      showDiscount: { type: Boolean, default: true },
+      showRoundOff: { type: Boolean, default: true },
+      grandTotalLabel: { type: String, default: 'Total' },
+    },
+    footer: {
+      show: { type: Boolean, default: true },
+      // Empty string falls back to the top-level receiptFooter setting.
+      text: { type: String, default: '' },
+    },
+  },
+  { _id: false }
+);
+
 const approvalsSettingsSchema = new mongoose.Schema(
   {
     // bcrypt hash of the manager-override PIN. Never returned by GET /api/settings.
@@ -178,6 +231,7 @@ const settingSchema = new mongoose.Schema(
     discounts: { type: discountsSchema, default: () => ({}) },
     rounding: { type: roundingSchema, default: () => ({}) },
     printing: { type: printingSchema, default: () => ({}) },
+    receiptTemplate: { type: receiptTemplateSchema, default: () => ({}) },
     features: { type: featuresSchema, default: () => ({}) },
     loyalty: { type: loyaltySettingsSchema, default: () => ({}) },
     approvals: { type: approvalsSettingsSchema, default: () => ({}) },

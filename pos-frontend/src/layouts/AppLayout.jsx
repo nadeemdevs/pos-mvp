@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   BarChart3,
   CalendarCheck,
@@ -152,6 +152,9 @@ export default function AppLayout() {
   const user = useAuthStore((s) => s.user)
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const logout = useAuthStore((s) => s.logout)
+  // The kitchen board is a dark full-bleed screen — blend the app header
+  // into it instead of leaving a white bar on top.
+  const isKitchen = useLocation().pathname.startsWith('/kitchen')
   const queryClient = useQueryClient()
   const activeBranch = useBranchStore((s) => s.activeBranch)
   const setActiveBranch = useBranchStore((s) => s.setActiveBranch)
@@ -289,7 +292,7 @@ export default function AppLayout() {
         </nav>
       </aside>
       <div className="app-main">
-        <header className="app-header">
+        <header className={'app-header' + (isKitchen ? ' app-header-dark' : '')}>
           <div className="app-header-title">{settings?.restaurantName || 'Restaurant POS'}</div>
           <div className="app-header-user">
             {showBranchSelector ? (

@@ -163,9 +163,12 @@ async function getCustomerInvoices(id, query) {
 }
 
 /**
- * Shared by the billing module: given the embedded {name, phone} snapshot a
- * cashier types into an invoice, find-or-create the matching Customer record
- * by phone. Never overwrites an existing customer's name with an empty one.
+ * Shared by billing, reservations, delivery webhooks and public QR orders:
+ * given a {name, phone} snapshot, find-or-create the matching Customer
+ * record by phone. The name is only ever set when CREATING a new customer —
+ * an existing customer is never renamed here, since several callers are
+ * unauthenticated (QR guests, partner webhooks) and must not be able to
+ * rewrite CRM data; renames go through the Customers page instead.
  * Returns null if no usable phone was supplied.
  */
 async function upsertByPhone({ name, phone } = {}) {
@@ -175,16 +178,12 @@ async function upsertByPhone({ name, phone } = {}) {
 
   const trimmedName = name && String(name).trim();
 
-  const update = { $set: { phone: trimmedPhone } };
-  if (trimmedName) {
-    update.$set.name = trimmedName;
-  } else {
-    update.$setOnInsert = { name: 'Guest' };
-  }
-
   const customer = await Customer.findOneAndUpdate(
     { phone: trimmedPhone },
-    update,
+    {
+      $set: { phone: trimmedPhone },
+      $setOnInsert: { name: trimmedName || 'Guest' },
+    },
     { new: true, upsert: true, setDefaultsOnInsert: true }
   );
 
