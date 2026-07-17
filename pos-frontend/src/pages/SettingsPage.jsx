@@ -1300,7 +1300,14 @@ function ApprovalsCard({ pin, pinConfirm, setPin, setPinConfirm, onSubmit, isSub
   )
 }
 
-const emptyBranchForm = { code: '', name: '', address: '', phone: '', active: true }
+const emptyBranchForm = {
+  code: '',
+  name: '',
+  address: '',
+  phone: '',
+  active: true,
+  serviceMode: 'TABLE_SERVICE',
+}
 
 // Multi-branch operation is out of scope for Phase 5 — this card only lets
 // Admins pre-register branch records for a later phase. All data (menu,
@@ -1377,6 +1384,7 @@ function BranchesCard() {
       address: branch.address || '',
       phone: branch.phone || '',
       active: branch.active ?? true,
+      serviceMode: branch.serviceMode || 'TABLE_SERVICE',
     })
     setModalOpen(true)
   }
@@ -1433,6 +1441,7 @@ function BranchesCard() {
               <th>Code</th>
               <th>Name</th>
               <th>Phone</th>
+              <th>Service Mode</th>
               <th>Status</th>
               <th></th>
             </tr>
@@ -1443,6 +1452,7 @@ function BranchesCard() {
                 <td>{b.code}</td>
                 <td>{b.name}</td>
                 <td>{b.phone || '—'}</td>
+                <td>{b.serviceMode === 'QSR' ? 'QSR' : 'Table Service'}</td>
                 <td>
                   <span className={`badge ${b.active === false ? 'badge-muted' : 'badge-success'}`}>
                     {b.active === false ? 'Inactive' : 'Active'}
@@ -1496,6 +1506,16 @@ function BranchesCard() {
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
+          </label>
+          <label className="field">
+            <span>Service Mode</span>
+            <select
+              value={form.serviceMode}
+              onChange={(e) => setForm({ ...form, serviceMode: e.target.value })}
+            >
+              <option value="TABLE_SERVICE">Table Service (print bill, then pay)</option>
+              <option value="QSR">QSR (pay, then print receipt)</option>
+            </select>
           </label>
           <label className="checkbox-field">
             <input

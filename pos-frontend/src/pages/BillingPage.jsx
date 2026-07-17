@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ChevronDown, ChevronUp, Palette, Percent, StickyNote, User } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createInvoice, updateInvoice } from '../services/invoiceService'
 import { takePayment } from '../services/paymentService'
 import { getSettings } from '../services/settingsService'
+import { getBranches } from '../services/branchService'
 import { getCurrentShift } from '../services/shiftService'
 import { setApprovalToken } from '../services/api'
 import { useCartStore, selectActiveCart } from '../store/cartStore'
@@ -99,6 +100,7 @@ export default function BillingPage() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [activeInvoice, setActiveInvoice] = useState(null)
   const [paymentResult, setPaymentResult] = useState(null)
+  const [printInvoice, setPrintInvoice] = useState(null)
   const [approvalModalOpen, setApprovalModalOpen] = useState(false)
   const [approvalAction, setApprovalAction] = useState(null) // 'charge' | 'saveEdit'
   const chargedTabIdRef = useRef(null)
@@ -143,6 +145,20 @@ export default function BillingPage() {
   const maxPercent = settings?.discounts?.maxPercent
   const presets = settings?.discounts?.presets || []
   const dineInEnabled = !!settings?.features?.dineIn && hasPermission('billing.create')
+
+  // Service mode is per-branch (see branch.model.js) — QSR charges first and
+  // auto-prints the receipt; TABLE_SERVICE prints the bill first and lets
+  // the cashier keep adding items/reprinting before payment is collected.
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches'],
+    queryFn: () => getBranches(),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+  const branches = Array.isArray(branchesData) ? branchesData : branchesData?.items || []
+  const serviceMode =
+    branches.find((b) => b.code === activeBranch)?.serviceMode || 'TABLE_SERVICE'
+  const isTableService = serviceMode === 'TABLE_SERVICE'
 
   // Non-blocking cash-reconciliation nudge — only fetched when shifts are on
   // and the user manages them; degrades silently on any error (404 when no
@@ -229,8 +245,15 @@ export default function BillingPage() {
       // charged tab, not whichever one is active by then.
       chargedTabIdRef.current = useCartStore.getState().activeTabId
       setActiveInvoice(invoice)
-      setPaymentModalOpen(true)
       invalidateInvoices()
+      if (isTableService) {
+        // Keep editing the same invoice on subsequent "Print Bill" clicks
+        // (add items, reprint) instead of creating a duplicate each time.
+        cart.setHeldInvoiceId(invoice._id || invoice.id)
+        setPrintInvoice(invoice)
+      } else {
+        setPaymentModalOpen(true)
+      }
     },
     onError: (e) => {
       const message = e.response?.data?.message || 'Failed to create invoice'
@@ -284,6 +307,24 @@ export default function BillingPage() {
     onError: (e) => toast(e.response?.data?.message || 'Payment failed', 'error'),
   })
 
+  // Table service: print the moment a bill exists (or is re-printed after
+  // edits), without leaving the cart screen.
+  useEffect(() => {
+    if (!printInvoice) return
+    const handleAfterPrint = () => setPrintInvoice(null)
+    window.addEventListener('afterprint', handleAfterPrint)
+    window.print()
+    return () => window.removeEventListener('afterprint', handleAfterPrint)
+  }, [printInvoice])
+
+  // QSR: receipt prints automatically the moment payment succeeds.
+  useEffect(() => {
+    if (paymentResult && !isTableService) {
+      window.print()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentResult])
+
   if (activeBranch === 'all') {
     return <BranchRequiredNotice />
   }
@@ -311,6 +352,7 @@ export default function BillingPage() {
     chargedTabIdRef.current = null
     setActiveInvoice(null)
     setPaymentResult(null)
+    setPrintInvoice(null)
   }
 
   const handleSetDiscountType = (type) => {
@@ -350,6 +392,11 @@ export default function BillingPage() {
 
   return (
     <div className="billing-page">
+      {printInvoice && (
+        <div className="printable-area printable-area-offscreen">
+          <Receipt invoice={printInvoice} settings={settings} />
+        </div>
+      )}
       <BillingTabs />
       <div className="billing-body">
       <div className="billing-left">
@@ -577,13 +624,33 @@ export default function BillingPage() {
                 >
                   Hold Bill
                 </button>
-                <button
-                  className="btn btn-primary btn-block"
-                  disabled={items.length === 0 || chargeMutation.isPending}
-                  onClick={() => chargeMutation.mutate()}
-                >
-                  Charge
-                </button>
+                {isTableService ? (
+                  <>
+                    <button
+                      className="btn btn-primary btn-block"
+                      disabled={items.length === 0 || chargeMutation.isPending}
+                      onClick={() => chargeMutation.mutate()}
+                    >
+                      {activeInvoice ? 'Reprint Bill' : 'Print Bill'}
+                    </button>
+                    {activeInvoice && (
+                      <button
+                        className="btn btn-ghost btn-block"
+                        onClick={() => setPaymentModalOpen(true)}
+                      >
+                        Collect Payment
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <button
+                    className="btn btn-primary btn-block"
+                    disabled={items.length === 0 || chargeMutation.isPending}
+                    onClick={() => chargeMutation.mutate()}
+                  >
+                    Charge
+                  </button>
+                )}
               </>
             )}
           </div>

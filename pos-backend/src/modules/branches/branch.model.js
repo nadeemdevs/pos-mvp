@@ -9,6 +9,9 @@ const branchSchema = new mongoose.Schema(
     address: { type: String, default: '' },
     phone: { type: String, default: '' },
     active: { type: Boolean, default: true },
+    // QSR: pay at counter, then print/hand receipt. TABLE_SERVICE: bill is
+    // printed and shown to the customer first, payment collected after.
+    serviceMode: { type: String, enum: ['QSR', 'TABLE_SERVICE'], default: 'TABLE_SERVICE' },
   },
   { timestamps: true }
 );

@@ -19,21 +19,21 @@ function isReservedCode(code) {
 }
 
 const create = asyncHandler(async (req, res) => {
-  const { code, name, address, phone, active } = req.body;
+  const { code, name, address, phone, active, serviceMode } = req.body;
   if (!code || !name) return res.status(400).json({ message: 'code and name are required' });
   if (isReservedCode(code)) {
     return res.status(400).json({ message: "'all' is reserved and cannot be used as a branch code." });
   }
-  const branch = await Branch.create({ code, name, address, phone, active });
+  const branch = await Branch.create({ code, name, address, phone, active, serviceMode });
   res.status(201).json(branch);
 });
 
 const update = asyncHandler(async (req, res) => {
-  const { code, name, address, phone, active } = req.body;
+  const { code, name, address, phone, active, serviceMode } = req.body;
   if (isReservedCode(code)) {
     return res.status(400).json({ message: "'all' is reserved and cannot be used as a branch code." });
   }
-  const update = { code, name, address, phone, active };
+  const update = { code, name, address, phone, active, serviceMode };
   const branch = await Branch.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
   if (!branch) return res.status(404).json({ message: 'Branch not found' });
   res.json(branch);
