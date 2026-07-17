@@ -9,7 +9,7 @@ import Spinner from './Spinner'
 import { getInvoice, updateInvoice, refundInvoice } from '../services/invoiceService'
 import { getPaymentsForInvoice } from '../services/paymentService'
 import { setApprovalToken } from '../services/api'
-import { useCartStore } from '../store/cartStore'
+import { useCartStore, selectActiveCart } from '../store/cartStore'
 import { toast } from '../store/toastStore'
 import { formatCurrency, formatDateTime } from '../utils/format'
 
@@ -101,6 +101,9 @@ export default function InvoiceDetailModal({ invoiceId, open, onClose, currency 
   }
 
   const handleEdit = () => {
+    // Don't clobber an order in progress on the billing page — edit the
+    // invoice in a fresh tab if the active one has items.
+    if (selectActiveCart(useCartStore.getState()).items.length > 0) cart.newTab()
     cart.loadInvoice(invoice)
     onClose?.()
     navigate('/billing')
