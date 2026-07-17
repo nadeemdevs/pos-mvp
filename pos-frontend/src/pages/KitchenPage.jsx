@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Maximize2, Minimize2 } from 'lucide-react'
 import { getKots, printKot, updateKotStatus } from '../services/kotService'
 import { useSocketEvents } from '../hooks/useSocketEvents'
 import { toast } from '../store/toastStore'
@@ -106,6 +107,29 @@ export default function KitchenPage() {
   const queryClient = useQueryClient()
   const activeBranch = useBranchStore((s) => s.activeBranch)
   const [printPayload, setPrintPayload] = useState(null)
+  // Fullscreen: the board overlays the sidebar/header (position:fixed) and,
+  // where the browser allows it, also enters real fullscreen to hide the
+  // browser chrome — ideal for a dedicated kitchen display.
+  const [fullscreen, setFullscreen] = useState(false)
+
+  const toggleFullscreen = () => {
+    if (fullscreen) {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+      setFullscreen(false)
+    } else {
+      document.documentElement.requestFullscreen?.().catch(() => {})
+      setFullscreen(true)
+    }
+  }
+
+  // Keep state in sync when fullscreen is exited via Esc / browser UI.
+  useEffect(() => {
+    const sync = () => {
+      if (!document.fullscreenElement) setFullscreen(false)
+    }
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
 
   const { data, isLoading } = useQuery({
     queryKey: ['kots', 'board'],
@@ -155,7 +179,15 @@ export default function KitchenPage() {
   if (activeBranch === 'all') return <BranchRequiredNotice />
 
   return (
-    <div className="kitchen-page">
+    <div className={'kitchen-page' + (fullscreen ? ' kitchen-fullscreen' : '')}>
+      <button
+        type="button"
+        className="kitchen-fullscreen-btn no-print"
+        title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        onClick={toggleFullscreen}
+      >
+        {fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+      </button>
       <div className="kitchen-board">
         {columns.map((col) => (
           <div key={col.status} className="kitchen-column">
