@@ -397,9 +397,8 @@ export default function BillingPage() {
           <Receipt invoice={printInvoice} settings={settings} />
         </div>
       )}
-      <BillingTabs />
-      <div className="billing-body">
       <div className="billing-left">
+        <BillingTabs />
         <MenuPicker
           currency={currency}
           colorful={menuColors}
@@ -655,7 +654,6 @@ export default function BillingPage() {
             )}
           </div>
         </div>
-      </div>
       </div>
 
       <HeldBillsModal

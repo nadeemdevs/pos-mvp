@@ -1617,27 +1617,32 @@ button, input, select, textarea {
 
 .billing-page {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: calc(100svh - 60px - 48px);
-}
-
-.billing-body {
-  display: flex;
   gap: 20px;
-  flex: 1;
-  min-height: 0;
+  height: calc(100svh - 60px - 48px);
 }
 
 /* ---------- Billing tabs (browser-style order tabs) ---------- */
 
+/* Lives inside .billing-left so the strip stays within the menu picker's
+   width and the cart column keeps its full height. Only the tab list
+   scrolls — the + button sits outside the scroll area, so tabs can never
+   slide underneath it. */
 .billing-tabs {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  margin-bottom: 12px;
+}
+
+.billing-tabs-scroll {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   overflow-x: auto;
+  min-width: 0;
   padding-bottom: 2px;
+  scroll-behavior: smooth;
 }
 
 .billing-tab {
