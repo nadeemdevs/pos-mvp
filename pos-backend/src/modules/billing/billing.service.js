@@ -4,6 +4,7 @@ const Setting = require('../settings/setting.model');
 const customersService = require('../customers/customers.service');
 const auditService = require('../audit/audit.service');
 const eventBus = require('../../common/eventBus');
+const printerFactory = require('../printing/PrinterFactory');
 const { nextInvoiceNumber } = require('../../common/utils/invoiceNumber');
 
 function round2(n) {
@@ -491,6 +492,83 @@ async function settleDelta(id, { amount, method, direction, user, req } = {}) {
   return payment;
 }
 
+function money(n) {
+  return (Number(n) || 0).toFixed(2);
+}
+
+// Same {title, meta, lines, footer} ticket shape as kots.service's
+// buildKotPrintPayload — the ESC/POS provider only knows how to render that
+// one generic shape, so totals/payment info are folded into `footer` as a
+// pre-formatted block of lines.
+function buildReceiptPrintPayload(invoice, payment, settings) {
+  const meta = [
+    ['Invoice #', invoice.invoiceNumber],
+    ['Date', new Date(invoice.createdAt || Date.now()).toLocaleString()],
+  ];
+  if (invoice.customer && (invoice.customer.name || invoice.customer.phone)) {
+    meta.push(['Customer', [invoice.customer.name, invoice.customer.phone].filter(Boolean).join(' - ')]);
+  }
+
+  const lines = (invoice.items || []).map((item) => ({
+    qty: item.qty,
+    name: item.name,
+    note: `${money(item.price)} each = ${money(item.price * item.qty)}`,
+  }));
+
+  const footerLines = [`Subtotal: ${money(invoice.subtotal)}`];
+  if (invoice.sgst || invoice.cgst) {
+    footerLines.push(`SGST: ${money(invoice.sgst)}`, `CGST: ${money(invoice.cgst)}`);
+  } else {
+    footerLines.push(`Tax: ${money(invoice.tax)}`);
+  }
+  if (invoice.discount) footerLines.push(`Discount: -${money(invoice.discount)}`);
+  if (invoice.roundOff) footerLines.push(`Round off: ${invoice.roundOff >= 0 ? '+' : ''}${money(invoice.roundOff)}`);
+  footerLines.push(`TOTAL: ${money(invoice.total)}`);
+
+  if (payment) {
+    footerLines.push(`Paid via: ${payment.method}`);
+    if (payment.method === 'CASH') {
+      footerLines.push(`Tendered: ${money(payment.tendered ?? payment.amount)}`);
+      footerLines.push(`Change: ${money(payment.change)}`);
+    }
+    if (payment.reference) footerLines.push(`Reference: ${payment.reference}`);
+  }
+
+  if (settings.receiptFooter) footerLines.push('', settings.receiptFooter);
+
+  return {
+    title: settings.restaurantName || 'Receipt',
+    meta,
+    lines,
+    footer: footerLines.join('\n'),
+  };
+}
+
+// Mirrors kots.service.printKot: looks up the configured provider for this
+// target ('receipt') and either prints straight to the network ESC/POS
+// printer (printed:true, no client involvement at all) or hands back a
+// formatted payload for the client to run through window.print() (printed:false).
+async function printReceipt(id) {
+  const invoice = await Invoice.findById(id);
+  if (!invoice) {
+    const err = new Error('Invoice not found');
+    err.status = 404;
+    throw err;
+  }
+
+  const payment = await Payment.findOne({ invoiceId: invoice._id, type: 'PAYMENT', status: 'SUCCESS' }).sort({
+    createdAt: -1,
+  });
+
+  const settings = await getSettings();
+  const printingConfig = settings.printing && settings.printing.toObject ? settings.printing.toObject() : settings.printing || {};
+  const receiptConfig = printingConfig.receipt || { provider: 'BROWSER' };
+
+  const payload = buildReceiptPrintPayload(invoice, payment, settings);
+  const provider = printerFactory.get(receiptConfig.provider);
+  return provider.print(payload, receiptConfig);
+}
+
 module.exports = {
   computeItemTotals,
   createInvoice,
@@ -500,4 +578,5 @@ module.exports = {
   updateInvoice,
   refundInvoice,
   settleDelta,
+  printReceipt,
 };

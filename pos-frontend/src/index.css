@@ -2082,6 +2082,61 @@ button, input, select, textarea {
   border-top: 1px solid var(--border);
 }
 
+/* Payment modal: form + live bill preview side by side */
+
+.payment-modal-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 20px;
+  align-items: start;
+}
+
+.payment-modal-form {
+  min-width: 0;
+}
+
+.payment-modal-preview {
+  border-left: 1px solid var(--border);
+  padding-left: 20px;
+}
+
+.payment-modal-preview-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.payment-modal-preview-receipt {
+  /* background: var(--muted-bg); */
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.payment-modal-preview-receipt .receipt {
+  width: 100%;
+  padding: 0;
+}
+
+@media (max-width: 720px) {
+  .payment-modal-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-modal-preview {
+    border-left: none;
+    border-top: 1px dashed var(--border);
+    padding-left: 0;
+    padding-top: 20px;
+    margin-top: 4px;
+  }
+}
+
 /* Payment success screen */
 
 .payment-success {
@@ -2089,20 +2144,61 @@ button, input, select, textarea {
   align-items: center;
   justify-content: center;
   min-height: calc(100svh - 60px - 48px);
+  padding: 24px;
 }
 
-.payment-success-actions {
-  text-align: center;
+.payment-success-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 380px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 40px;
+  padding: 32px 24px 24px;
   box-shadow: var(--shadow);
 }
 
-.payment-success-actions h2 {
+.payment-success-header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.payment-success-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--success-bg);
   color: var(--success);
-  margin-bottom: 8px;
+  font-size: 26px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.payment-success-header h2 {
+  color: var(--success);
+  margin-bottom: 4px;
+}
+
+.payment-success-header p {
+  color: var(--text-muted);
+}
+
+.payment-success-receipt {
+  width: 100%;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  margin-bottom: 20px;
+  padding: 20px 0;
+}
+
+.payment-success-receipt .receipt {
+  width: 100%;
+  padding: 0;
 }
 
 /* ---------- Receipt ---------- */

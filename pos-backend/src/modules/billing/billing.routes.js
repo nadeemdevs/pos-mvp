@@ -26,5 +26,6 @@ router.put(
 // max-discount override on create/update above.
 router.post("/:id/refund", authorize("billing.create"), controller.refund);
 router.post("/:id/settle", authorize("billing.create"), controller.settle);
+router.get('/:id/print', authorize('billing.view'), controller.print);
 
 module.exports = router;

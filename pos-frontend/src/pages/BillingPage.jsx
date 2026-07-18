@@ -2,7 +2,7 @@ import { useRef, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ChevronDown, ChevronUp, Palette, Percent, StickyNote, User } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createInvoice, updateInvoice } from '../services/invoiceService'
+import { createInvoice, printInvoice, updateInvoice } from '../services/invoiceService'
 import { takePayment } from '../services/paymentService'
 import { getSettings } from '../services/settingsService'
 import { getBranches } from '../services/branchService'
@@ -295,14 +295,23 @@ export default function BillingPage() {
     }
   }
 
+  // Placeholder for POS (ESC/POS) printing — the backend endpoint just
+  // records/echoes for now; real printer wiring lands later.
+  const printMutation = useMutation({
+    mutationFn: printInvoice,
+    onSuccess: () => toast('Sent to POS printer', 'success'),
+    onError: (e) => toast(e.response?.data?.message || 'Failed to print on POS', 'error'),
+  })
+
   const paymentMutation = useMutation({
     mutationFn: takePayment,
     onSuccess: (data) => {
       // /payments/manual responds with { payment, invoice, change } —
       // the receipt wants the payment document itself
-      setPaymentResult(data?.payment || data)
+      // setPaymentResult(data?.payment || data)
       setPaymentModalOpen(false)
       invalidateInvoices()
+      handleNewSale()
     },
     onError: (e) => toast(e.response?.data?.message || 'Payment failed', 'error'),
   })
@@ -371,15 +380,30 @@ export default function BillingPage() {
   if (paymentResult) {
     return (
       <div className="payment-success">
-        <div className="printable-area">
-          <Receipt invoice={activeInvoice} payment={paymentResult} settings={settings} />
-        </div>
-        <div className="payment-success-actions no-print">
-          <h2>Payment Successful</h2>
-          <p>Invoice {activeInvoice?.invoiceNumber} — {formatCurrency(activeInvoice?.total, currency)}</p>
-          <div className="modal-actions">
+        <div className="payment-success-card">
+          <div className="payment-success-header no-print">
+            <span className="payment-success-icon">✓</span>
+            <h2>Payment Successful</h2>
+            <p>
+              Invoice {activeInvoice?.invoiceNumber} — {formatCurrency(activeInvoice?.total, currency)}
+            </p>
+          </div>
+          <div className="printable-area payment-success-receipt">
+            <Receipt invoice={activeInvoice} payment={paymentResult} settings={settings} />
+          </div>
+          <div className="modal-actions no-print">
+            <button
+              className="btn btn-ghost"
+              disabled={printMutation.isPending}
+              onClick={() => {
+                const invoiceId = activeInvoice?._id || activeInvoice?.id
+                if (invoiceId) printMutation.mutate(invoiceId)
+              }}
+            >
+              {printMutation.isPending ? 'Printing…' : 'Print on POS'}
+            </button>
             <button className="btn btn-ghost" onClick={() => window.print()}>
-              Print Receipt
+              Print in Browser
             </button>
             <button className="btn btn-primary" onClick={handleNewSale}>
               New Sale

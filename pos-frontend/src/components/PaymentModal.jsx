@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import Modal from './Modal'
+import Receipt from './Receipt'
 import { formatCurrency } from '../utils/format'
 import { cancelCardPayment, getPayment, initiateCardPayment } from '../services/paymentService'
 import { getLoyaltySummary, redeemLoyaltyPoints } from '../services/loyaltyService'
@@ -98,6 +99,25 @@ export default function PaymentModal({
     const t = Number(tendered) || 0
     return Math.max(t - total, 0)
   }, [tendered, total])
+
+  // Drives the live bill preview on the right — a stand-in Payment shaped
+  // like what the backend will actually record, so the preview reflects
+  // whatever the cashier has filled in so far (not yet a real payment).
+  const previewPayment = useMemo(() => {
+    if (method === 'CASH') {
+      return { method: 'CASH', tendered: Number(tendered) || 0, amount: Number(tendered) || total, change }
+    }
+    if (method === 'UPI') {
+      return { method: 'UPI', amount: total, reference: reference || undefined }
+    }
+    return {
+      method: 'CARD',
+      amount: total,
+      provider: cardPayment?.provider || provider || undefined,
+      cardDetails: cardPayment?.cardDetails,
+      reference: cardPayment?.reference,
+    }
+  }, [method, tendered, total, change, reference, provider, cardPayment])
 
   const isPolling = !!cardPayment && POLLING_STATUSES.includes(cardPayment.status)
 
@@ -284,84 +304,86 @@ export default function PaymentModal({
   )
 
   return (
-    <Modal open={open} onClose={handleClose} title="Take Payment" width="420px">
-      {loyaltyEnabled && (
-        <div className="loyalty-block">
-          <div className="loyalty-block-header">
-            <span>Loyalty</span>
-            {loyaltySummary?.tier && <span className="tier-badge">{loyaltySummary.tier}</span>}
-          </div>
-          <div className="loyalty-block-balance">
-            {loyaltySummary?.points ?? 0} pts available
-          </div>
-          {alreadyRedeemed ? (
-            <div className="loyalty-applied">
-              −{formatCurrency(invoice.loyaltyDiscount, currency)} ({invoice.loyaltyPoints} pts)
-            </div>
-          ) : (
-            <div className="loyalty-redeem-row">
-              <input
-                type="number"
-                min="0"
-                max={maxRedeemable}
-                placeholder="Points to redeem"
-                value={redeemPoints}
-                onChange={(e) => setRedeemPoints(e.target.value)}
-              />
-              <span className="loyalty-preview">
-                {redeemPreview > 0 ? `→ −${formatCurrency(redeemPreview, currency)}` : ''}
-              </span>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                disabled={
-                  !redeemPoints ||
-                  Number(redeemPoints) <= 0 ||
-                  Number(redeemPoints) > maxRedeemable ||
-                  redeemMutation.isPending
-                }
-                onClick={() => redeemMutation.mutate()}
-              >
-                {redeemMutation.isPending ? 'Applying…' : 'Apply'}
-              </button>
+    <Modal open={open} onClose={handleClose} title="Take Payment" width="800px">
+      <div className="payment-modal-layout">
+        <div className="payment-modal-form">
+          {loyaltyEnabled && (
+            <div className="loyalty-block">
+              <div className="loyalty-block-header">
+                <span>Loyalty</span>
+                {loyaltySummary?.tier && <span className="tier-badge">{loyaltySummary.tier}</span>}
+              </div>
+              <div className="loyalty-block-balance">
+                {loyaltySummary?.points ?? 0} pts available
+              </div>
+              {alreadyRedeemed ? (
+                <div className="loyalty-applied">
+                  −{formatCurrency(invoice.loyaltyDiscount, currency)} ({invoice.loyaltyPoints} pts)
+                </div>
+              ) : (
+                <div className="loyalty-redeem-row">
+                  <input
+                    type="number"
+                    min="0"
+                    max={maxRedeemable}
+                    placeholder="Points to redeem"
+                    value={redeemPoints}
+                    onChange={(e) => setRedeemPoints(e.target.value)}
+                  />
+                  <span className="loyalty-preview">
+                    {redeemPreview > 0 ? `→ −${formatCurrency(redeemPreview, currency)}` : ''}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={
+                      !redeemPoints ||
+                      Number(redeemPoints) <= 0 ||
+                      Number(redeemPoints) > maxRedeemable ||
+                      redeemMutation.isPending
+                    }
+                    onClick={() => redeemMutation.mutate()}
+                  >
+                    {redeemMutation.isPending ? 'Applying…' : 'Apply'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
 
-      <div className="payment-total">
-        <span>Amount Due</span>
-        <span>{formatCurrency(total, currency)}</span>
-      </div>
+          <div className="payment-total">
+            <span>Amount Due</span>
+            <span>{formatCurrency(total, currency)}</span>
+          </div>
 
-      <div className="method-toggle">
-        <button
-          type="button"
-          className={`toggle-btn ${method === 'CASH' ? 'active' : ''}`}
-          disabled={isPolling}
-          onClick={() => setMethod('CASH')}
-        >
-          Cash
-        </button>
-        <button
-          type="button"
-          className={`toggle-btn ${method === 'UPI' ? 'active' : ''}`}
-          disabled={isPolling}
-          onClick={() => setMethod('UPI')}
-        >
-          UPI
-        </button>
-        {cardEnabled && (
-          <button
-            type="button"
-            className={`toggle-btn ${method === 'CARD' ? 'active' : ''}`}
-            disabled={isPolling}
-            onClick={() => setMethod('CARD')}
-          >
-            Card
-          </button>
-        )}
-      </div>
+          <div className="method-toggle">
+            <button
+              type="button"
+              className={`toggle-btn ${method === 'CASH' ? 'active' : ''}`}
+              disabled={isPolling}
+              onClick={() => setMethod('CASH')}
+            >
+              Cash
+            </button>
+            <button
+              type="button"
+              className={`toggle-btn ${method === 'UPI' ? 'active' : ''}`}
+              disabled={isPolling}
+              onClick={() => setMethod('UPI')}
+            >
+              UPI
+            </button>
+            {cardEnabled && (
+              <button
+                type="button"
+                className={`toggle-btn ${method === 'CARD' ? 'active' : ''}`}
+                disabled={isPolling}
+                onClick={() => setMethod('CARD')}
+              >
+                Card
+              </button>
+            )}
+          </div>
 
       {method === 'CASH' && (
         <div>
@@ -401,40 +423,49 @@ export default function PaymentModal({
         </div>
       )}
 
-      {method === 'UPI' && (
-        <label className="field">
-          <span>Reference / UTR (optional)</span>
-          <input
-            autoFocus
-            value={reference}
-            onChange={(e) => setReference(e.target.value)}
-          />
-        </label>
-      )}
+          {method === 'UPI' && (
+            <label className="field">
+              <span>Reference / UTR (optional)</span>
+              <input
+                autoFocus
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+              />
+            </label>
+          )}
 
-      {method === 'CARD' && (
-        <>
-          {cardStage === 'select' && renderCardSelect()}
-          {cardStage === 'waiting' && renderCardWaiting()}
-          {cardStage === 'error' && renderCardError()}
-        </>
-      )}
+          {method === 'CARD' && (
+            <>
+              {cardStage === 'select' && renderCardSelect()}
+              {cardStage === 'waiting' && renderCardWaiting()}
+              {cardStage === 'error' && renderCardError()}
+            </>
+          )}
 
-      {method !== 'CARD' && (
-        <div className="modal-actions">
-          <button type="button" className="btn btn-ghost" onClick={handleClose}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={!canConfirm || isSubmitting}
-            onClick={handleConfirm}
-          >
-            {isSubmitting ? 'Processing…' : 'Confirm Payment'}
-          </button>
+          {method !== 'CARD' && (
+            <div className="modal-actions">
+              <button type="button" className="btn btn-ghost" onClick={handleClose}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!canConfirm || isSubmitting}
+                onClick={handleConfirm}
+              >
+                {isSubmitting ? 'Processing…' : 'Confirm Payment and close'}
+              </button>
+            </div>
+          )}
         </div>
-      )}
+
+        <div className="payment-modal-preview">
+          <div className="payment-modal-preview-label">Bill Preview</div>
+          <div className="payment-modal-preview-receipt">
+            <Receipt invoice={invoice} payment={previewPayment} settings={settings} />
+          </div>
+        </div>
+      </div>
     </Modal>
   )
 }

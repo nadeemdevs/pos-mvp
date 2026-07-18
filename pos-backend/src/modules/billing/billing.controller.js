@@ -70,4 +70,9 @@ const settle = asyncHandler(async (req, res) => {
   res.json(payment);
 });
 
-module.exports = { create, list, getOne, update, refund, settle };
+const print = asyncHandler(async (req, res) => {
+  const result = await billingService.printReceipt(req.params.id);
+  res.json(result);
+});
+
+module.exports = { create, list, getOne, update, refund, settle, print };

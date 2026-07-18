@@ -17,3 +17,6 @@ export const refundInvoice = (id, data) =>
 
 export const settleInvoiceDelta = (id, data) =>
   api.post(`/invoice/${id}/settle`, data).then((r) => r.data)
+
+export const printInvoice = (id) =>
+  api.get(`/invoice/${id}/print`).then((r) => r.data)
